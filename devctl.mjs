@@ -72,6 +72,10 @@ let fullRenderNeeded = false;
 // Tab completion state
 let tabState = null;
 
+// Scan mode state
+let scanMode = null;
+// When active: { candidates, cursorIdx, selected: Set, readmeCache: Map, readmeScrollPos, candidateScroll }
+
 // Scan skip directories
 const SCAN_SKIP_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', '.turbo',
@@ -247,11 +251,13 @@ function calcLayout() {
 
   if (rows < 12 || cols < 40) return null;
 
-  const maxName = apps.length > 0
-    ? Math.max(...apps.map(a => a.name.length))
+  const nameSource = scanMode ? scanMode.candidates : apps;
+  const maxName = nameSource.length > 0
+    ? Math.max(...nameSource.map(a => a.name.length))
     : 4;
+  const extraWidth = scanMode ? 4 : 0;
   const sidebarInner = Math.min(
-    Math.max(16, maxName + 6),
+    Math.max(16, maxName + 6 + extraWidth),
     Math.floor(cols * 0.35),
   );
   const logInner = cols - sidebarInner - 3;
@@ -378,7 +384,7 @@ function renderFull() {
   buf += moveTo(0, 0);
   const titleText = ` ${BOLD}devctl${RESET} `;
   const titleVisLen = 8; // " devctl "
-  const topFill = cols - 2 - titleVisLen;
+  const topFill = cols - 2 - 1 - titleVisLen;
   buf += BOX.TL + BOX.H + titleText;
   buf += BOX.H.repeat(Math.max(0, topFill)) + BOX.TR;
 
@@ -411,7 +417,7 @@ function renderFull() {
   buf += moveTo(bottomRow, 0);
   const hints = getHints();
   const hintsVis = stripAnsi(hints);
-  const hintFill = cols - 2 - 2 - hintsVis.length;
+  const hintFill = cols - 2 - 3 - hintsVis.length;
   if (hintFill >= 0) {
     buf += BOX.BL + BOX.H + ' ' + hints + ' ' + BOX.H.repeat(hintFill) + BOX.BR;
   } else {
@@ -423,6 +429,8 @@ function renderFull() {
 }
 
 function renderSidebarRow(rowIdx, width) {
+  if (scanMode) return renderScanCandidateRow(rowIdx, width);
+
   if (rowIdx === 0) {
     const style = focusArea === 'sidebar' ? BOLD : DIM;
     return fitToWidth(` ${style}APPS${RESET}`, width);
@@ -467,6 +475,8 @@ function renderSidebarRow(rowIdx, width) {
 }
 
 function renderLogRow(rowIdx, width, displayLines, scrollPos) {
+  if (scanMode) return renderScanReadmeRow(rowIdx, width);
+
   const app = apps[selectedIdx];
 
   if (rowIdx === 0) {
@@ -492,6 +502,107 @@ function renderLogRow(rowIdx, width, displayLines, scrollPos) {
   }
 
   return ' '.repeat(width);
+}
+
+function renderScanCandidateRow(rowIdx, width) {
+  if (rowIdx === 0) {
+    return fitToWidth(` ${BOLD}SCAN RESULTS${RESET}`, width);
+  }
+
+  const { candidates, cursorIdx, selected, candidateScroll } = scanMode;
+  const appIdx = rowIdx - 1 + candidateScroll;
+  if (appIdx < 0 || appIdx >= candidates.length) {
+    return ' '.repeat(width);
+  }
+
+  const c = candidates[appIdx];
+  const isCursor = appIdx === cursorIdx;
+  const isChecked = selected.has(appIdx);
+  const check = isChecked ? '[x]' : '[ ]';
+  const arrow = isCursor ? '\u25b8' : ' ';
+
+  const maxNameLen = width - 6; // arrow + space + check + space + name
+  let name = c.name;
+  if (name.length > maxNameLen) {
+    name = name.slice(0, Math.max(1, maxNameLen - 1)) + '\u2026';
+  }
+
+  const padLen = width - 2 - 4 - name.length;
+  const padding = padLen > 0 ? ' '.repeat(padLen) : '';
+  const text = `${arrow} ${check} ${name}${padding}`;
+
+  if (isCursor) {
+    return `${INVERSE} ${text}${RESET}`;
+  }
+  if (isChecked) {
+    return `${GREEN} ${text}${RESET}`;
+  }
+  return fitToWidth(` ${text}`, width);
+}
+
+function renderScanReadmeRow(rowIdx, width) {
+  const { candidates, cursorIdx, readmeScrollPos } = scanMode;
+  const c = candidates[cursorIdx];
+
+  if (rowIdx === 0) {
+    const header = ` ${BOLD}${c.name}${RESET}  ${DIM}${c.dir}${RESET}`;
+    return fitToWidth(header, width);
+  }
+  if (rowIdx === 1) {
+    return fitToWidth(` ${DIM}command:${RESET} ${c.command}`, width);
+  }
+  if (rowIdx === 2) {
+    return fitToWidth(` ${DIM}ports:${RESET}   ${c.ports.join(', ')}`, width);
+  }
+  if (rowIdx === 3) {
+    return fitToWidth(` ${DIM}dev:${RESET}     ${c.devScript}`, width);
+  }
+  if (rowIdx === 4) {
+    return BOX.H.repeat(width);
+  }
+
+  const readmeLines = getScanReadmeLines(c);
+  const lineIdx = readmeScrollPos + (rowIdx - 5);
+  if (lineIdx >= 0 && lineIdx < readmeLines.length) {
+    return fitToWidth(' ' + readmeLines[lineIdx], width);
+  }
+  return ' '.repeat(width);
+}
+
+function getScanReadmeLines(candidate) {
+  if (scanMode.readmeCache.has(candidate.dir)) {
+    return scanMode.readmeCache.get(candidate.dir);
+  }
+
+  const readmePath = path.join(PROJECT_ROOT, candidate.dir, 'README.md');
+  let lines;
+  try {
+    const content = fs.readFileSync(readmePath, 'utf-8');
+    const textWidth = layout ? layout.logInner - 2 : 78;
+    const rawLines = content.split('\n');
+    lines = [];
+    for (const line of rawLines) {
+      const wrapped = wrapLine(line, textWidth);
+      for (const seg of wrapped) lines.push(seg);
+    }
+  } catch {
+    lines = ['No README.md found'];
+  }
+
+  scanMode.readmeCache.set(candidate.dir, lines);
+  return lines;
+}
+
+function scrollScanReadme(delta) {
+  const c = scanMode.candidates[scanMode.cursorIdx];
+  const readmeLines = getScanReadmeLines(c);
+  const viewHeight = layout ? layout.mainHeight - 5 : 10;
+  const maxScroll = Math.max(0, readmeLines.length - viewHeight);
+
+  scanMode.readmeScrollPos = Math.max(0, Math.min(maxScroll, scanMode.readmeScrollPos + delta));
+
+  renderLogPane();
+  renderCommandLine();
 }
 
 function renderLogPane() {
@@ -568,6 +679,10 @@ function positionCmdCursor() {
 // ── Hotkey Hints ────────────────────────────────────────
 
 function getHints() {
+  if (scanMode) {
+    const n = scanMode.selected.size;
+    return `${DIM}Space: toggle │ a: all │ Enter: add (${n}) │ Esc: cancel │ PgUp/Dn: scroll readme${RESET}`;
+  }
   if (questionMode) {
     return `${DIM}Enter: submit${RESET}`;
   }
@@ -583,7 +698,7 @@ function renderBottomBar() {
 
   const hints = getHints();
   const hintsVis = stripAnsi(hints);
-  const fill = cols - 2 - 2 - hintsVis.length;
+  const fill = cols - 2 - 3 - hintsVis.length;
 
   let buf = CURSOR_HIDE;
   buf += moveTo(bottomRow, 0);
@@ -1023,7 +1138,6 @@ async function cmdPorts() {
 }
 
 async function cmdScan() {
-  log(`${DIM}Scanning project tree...${RESET}`);
   const candidates = detectApps();
 
   if (candidates.length === 0) {
@@ -1031,68 +1145,59 @@ async function cmdScan() {
     return;
   }
 
-  log(`Found ${BOLD}${candidates.length}${RESET} app(s) not yet registered:\n`);
+  scanMode = {
+    candidates,
+    cursorIdx: 0,
+    selected: new Set(),
+    readmeCache: new Map(),
+    readmeScrollPos: 0,
+    candidateScroll: 0,
+  };
 
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i];
-    log(`  ${BOLD}${i + 1})${RESET} ${BOLD}${c.name}${RESET}`);
-    log(`     dir:     ${c.dir}`);
-    log(`     command: ${c.command}`);
-    log(`     ports:   ${c.ports.join(', ')}`);
-    log(`     ${DIM}dev: ${c.devScript}${RESET}`);
-    log('');
-  }
-
-  const input = await askQuestion('Select apps to add (comma-separated numbers, "all", or empty to cancel): ');
-  if (!input.trim()) {
-    log('Scan cancelled.');
-    return;
-  }
-
-  const selected = parseSelection(input, candidates.length);
-  if (selected.length === 0) {
-    log('No valid selections.');
-    return;
-  }
-
-  const addedNames = [];
-  for (const idx of selected) {
-    const c = candidates[idx];
-    let name = c.name;
-    while (getApp(name)) {
-      const alt = await askQuestion(`Name "${name}" already exists. Alternative name: `);
-      if (!alt) { log('Skipped.'); name = null; break; }
-      name = alt;
-    }
-    if (!name) continue;
-
-    const entry = { name, dir: c.dir, command: c.command, ports: c.ports };
-    const err = validateAppEntry(entry);
-    if (err) {
-      log(`${RED}Invalid entry for ${name}: ${err}${RESET}`);
-      continue;
-    }
-
-    apps.push(entry);
-    addedNames.push(name);
-    log(`${GREEN}Added ${name}.${RESET}`);
-  }
-
-  if (addedNames.length === 0) {
-    log('No apps were added.');
-    return;
-  }
-
-  saveConfig(apps);
   layout = calcLayout();
   scheduleFullRender();
-  log(`${GREEN}${addedNames.length} app(s) added.${RESET}`);
+}
 
-  const startAnswer = await askQuestion(`Start ${addedNames.join(', ')} now? (y/N): `);
-  if (startAnswer.trim().toLowerCase() === 'y') {
-    for (const name of addedNames) {
-      await startApp(name);
+function exitScanMode(confirmed) {
+  if (confirmed && scanMode.selected.size > 0) {
+    const addedNames = [];
+    const existingNames = new Set(apps.map(a => a.name));
+
+    for (const idx of scanMode.selected) {
+      const c = scanMode.candidates[idx];
+      let name = c.name;
+
+      // Auto-resolve name collisions with numeric suffix
+      if (existingNames.has(name)) {
+        let suffix = 2;
+        while (existingNames.has(`${c.name}-${suffix}`)) suffix++;
+        name = `${c.name}-${suffix}`;
+      }
+
+      const entry = { name, dir: c.dir, command: c.command, ports: c.ports };
+      const err = validateAppEntry(entry);
+      if (err) continue;
+
+      apps.push(entry);
+      existingNames.add(name);
+      addedNames.push(name);
     }
+
+    scanMode = null;
+    layout = calcLayout();
+    scheduleFullRender();
+
+    if (addedNames.length > 0) {
+      saveConfig(apps);
+      log(`${GREEN}Added ${addedNames.length} app(s): ${addedNames.join(', ')}${RESET}`);
+    } else {
+      log('No apps were added.');
+    }
+  } else {
+    scanMode = null;
+    layout = calcLayout();
+    scheduleFullRender();
+    log(confirmed ? 'No apps selected.' : 'Scan cancelled.');
   }
 }
 
@@ -1258,6 +1363,9 @@ function handleKeypress(str, key) {
     return;
   }
 
+  // Scan mode
+  if (scanMode) { handleScanKeypress(str, key); return; }
+
   // PageUp/PageDown in any focus mode
   if (key.name === 'pageup') {
     scrollLog(-(getLogViewHeight() - 1));
@@ -1419,6 +1527,87 @@ function handleCommandKeypress(str, key) {
     cmdInput = cmdInput.slice(0, cmdCursor) + str + cmdInput.slice(cmdCursor);
     cmdCursor++;
     renderCommandLine();
+  }
+}
+
+function handleScanKeypress(str, key) {
+  const { candidates, cursorIdx } = scanMode;
+
+  // Up / k
+  if (key.name === 'up' || key.name === 'k') {
+    if (cursorIdx > 0) {
+      scanMode.cursorIdx--;
+      scanMode.readmeScrollPos = 0;
+      // Scroll viewport if cursor is above visible area
+      if (scanMode.cursorIdx < scanMode.candidateScroll) {
+        scanMode.candidateScroll = scanMode.cursorIdx;
+      }
+      scheduleFullRender();
+    }
+    return;
+  }
+
+  // Down / j
+  if (key.name === 'down' || key.name === 'j') {
+    if (cursorIdx < candidates.length - 1) {
+      scanMode.cursorIdx++;
+      scanMode.readmeScrollPos = 0;
+      // Scroll viewport if cursor is below visible area
+      const visibleRows = layout ? layout.mainHeight - 1 : 10;
+      if (scanMode.cursorIdx >= scanMode.candidateScroll + visibleRows) {
+        scanMode.candidateScroll = scanMode.cursorIdx - visibleRows + 1;
+      }
+      scheduleFullRender();
+    }
+    return;
+  }
+
+  // Space: toggle selection
+  if (key.name === 'space' || str === ' ') {
+    if (scanMode.selected.has(cursorIdx)) {
+      scanMode.selected.delete(cursorIdx);
+    } else {
+      scanMode.selected.add(cursorIdx);
+    }
+    scheduleFullRender();
+    return;
+  }
+
+  // a: toggle all / none
+  if (str === 'a') {
+    if (scanMode.selected.size === candidates.length) {
+      scanMode.selected.clear();
+    } else {
+      for (let i = 0; i < candidates.length; i++) {
+        scanMode.selected.add(i);
+      }
+    }
+    scheduleFullRender();
+    return;
+  }
+
+  // Enter: confirm
+  if (key.name === 'return') {
+    exitScanMode(true);
+    return;
+  }
+
+  // Escape: cancel
+  if (key.name === 'escape') {
+    exitScanMode(false);
+    return;
+  }
+
+  // PgUp / PgDn: scroll readme
+  if (key.name === 'pageup') {
+    const viewHeight = layout ? layout.mainHeight - 5 : 10;
+    scrollScanReadme(-(viewHeight - 1));
+    return;
+  }
+  if (key.name === 'pagedown') {
+    const viewHeight = layout ? layout.mainHeight - 5 : 10;
+    scrollScanReadme(viewHeight - 1);
+    return;
   }
 }
 
