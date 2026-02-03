@@ -26,6 +26,8 @@ const RED     = '\x1b[31m';
 const GREEN   = '\x1b[32m';
 const YELLOW  = '\x1b[33m';
 
+const SYSTEM_NAME = 'devctl';
+
 const ALT_SCREEN_ON  = '\x1b[?1049h';
 const ALT_SCREEN_OFF = '\x1b[?1049l';
 const CURSOR_HIDE    = '\x1b[?25l';
@@ -313,14 +315,13 @@ function appendLog(name, text, isStderr = false) {
     buf.scrollPos = Math.max(0, displayCount - getLogViewHeight());
   }
 
-  if (apps[selectedIdx]?.name === name) {
+  if (selectedIdx > 0 && apps[selectedIdx - 1]?.name === name) {
     scheduleLogRender();
   }
 }
 
 function log(msg) {
-  const name = apps[selectedIdx]?.name || '_system';
-  const buf = getLogBuffer(name);
+  const buf = getLogBuffer(SYSTEM_NAME);
   const lines = msg.split('\n');
   for (const line of lines) {
     buf.lines.push(line);
@@ -334,7 +335,7 @@ function log(msg) {
     const displayCount = getDisplayLineCount(buf, getLogTextWidth());
     buf.scrollPos = Math.max(0, displayCount - getLogViewHeight());
   }
-  scheduleLogRender();
+  if (selectedIdx === 0) scheduleLogRender();
 }
 
 // ── Render Scheduling ───────────────────────────────────
@@ -389,8 +390,7 @@ function renderFull() {
   buf += BOX.H.repeat(Math.max(0, topFill)) + BOX.TR;
 
   // Pre-compute display lines for log pane
-  const logBufName = apps[selectedIdx]?.name || '_system';
-  const logBuf = getLogBuffer(logBufName);
+  const logBuf = getLogBuffer(getSelectedBufName());
   const displayLines = getDisplayLines(logBuf, logInner - 1);
 
   // Main content rows
@@ -436,13 +436,30 @@ function renderSidebarRow(rowIdx, width) {
     return fitToWidth(` ${style}APPS${RESET}`, width);
   }
 
-  const appIdx = rowIdx - 1;
+  // Row 1: devctl system entry
+  if (rowIdx === 1) {
+    const isSelected = selectedIdx === 0;
+    const prefix = isSelected ? ' \u25b8 ' : '   ';
+    const name = SYSTEM_NAME;
+    const padLen = width - 3 - name.length;
+    const padding = padLen > 0 ? ' '.repeat(padLen) : '';
+    if (isSelected && focusArea === 'sidebar') {
+      return `${INVERSE}${prefix}${name}${padding}${RESET}`;
+    }
+    if (isSelected) {
+      return `${BOLD}${prefix}${name}${RESET}${padding}`;
+    }
+    return `${DIM}${prefix}${name}${padding}${RESET}`;
+  }
+
+  // Row 2+: apps
+  const appIdx = rowIdx - 2;
   if (appIdx < 0 || appIdx >= apps.length) {
     return ' '.repeat(width);
   }
 
   const app = apps[appIdx];
-  const isSelected = appIdx === selectedIdx;
+  const isSelected = (rowIdx - 1) === selectedIdx;
   const entry = procs.get(app.name);
   const status = entry?.status || 'stopped';
 
@@ -477,9 +494,12 @@ function renderSidebarRow(rowIdx, width) {
 function renderLogRow(rowIdx, width, displayLines, scrollPos) {
   if (scanMode) return renderScanReadmeRow(rowIdx, width);
 
-  const app = apps[selectedIdx];
+  const app = getSelectedApp();
 
   if (rowIdx === 0) {
+    if (selectedIdx === 0) {
+      return fitToWidth(` ${BOLD}devctl${RESET}  ${DIM}system log${RESET}`, width);
+    }
     if (!app) {
       return fitToWidth(` ${DIM}No apps configured${RESET}`, width);
     }
@@ -610,8 +630,7 @@ function renderLogPane() {
   const { logInner, mainTop, mainBottom, sidebarInner } = layout;
 
   // Pre-compute display lines for log pane
-  const logBufName = apps[selectedIdx]?.name || '_system';
-  const logBuf = getLogBuffer(logBufName);
+  const logBuf = getLogBuffer(getSelectedBufName());
   const displayLines = getDisplayLines(logBuf, logInner - 1);
 
   let buf = CURSOR_HIDE;
@@ -739,6 +758,16 @@ function askQuestion(prompt) {
 
 function getApp(name) {
   return apps.find(a => a.name === name);
+}
+
+function getSelectedApp() {
+  if (selectedIdx === 0) return null;
+  return apps[selectedIdx - 1] || null;
+}
+
+function getSelectedBufName() {
+  if (selectedIdx === 0) return SYSTEM_NAME;
+  return apps[selectedIdx - 1]?.name || SYSTEM_NAME;
 }
 
 // ── Scan Helpers ────────────────────────────────────────
@@ -1249,8 +1278,8 @@ async function cmdRemove(args) {
   saveConfig(apps);
   log(`${GREEN}Removed ${args}.${RESET}`);
 
-  if (selectedIdx >= apps.length) {
-    selectedIdx = Math.max(0, apps.length - 1);
+  if (selectedIdx > apps.length) {
+    selectedIdx = apps.length;
   }
   layout = calcLayout();
   scheduleFullRender();
@@ -1403,7 +1432,7 @@ function handleSidebarKeypress(str, key) {
   }
 
   if (key.name === 'down' || key.name === 'j') {
-    if (selectedIdx < apps.length - 1) {
+    if (selectedIdx < apps.length) {
       selectedIdx++;
       renderSidebar();
       renderLogPane();
@@ -1435,12 +1464,10 @@ function handleCommandKeypress(str, key) {
   // Tab: completion if there's text, toggle focus if empty
   if (key.name === 'tab') {
     if (cmdInput.length === 0) {
-      if (apps.length > 0) {
-        focusArea = 'sidebar';
-        renderSidebar();
-        renderCommandLine();
-        renderBottomBar();
-      }
+      focusArea = 'sidebar';
+      renderSidebar();
+      renderCommandLine();
+      renderBottomBar();
     } else {
       handleTabCompletion();
     }
@@ -1716,8 +1743,7 @@ function navigateHistory(dir) {
 // ── Log Scrolling ───────────────────────────────────────
 
 function scrollLog(delta) {
-  const app = apps[selectedIdx];
-  const bufName = app?.name || '_system';
+  const bufName = getSelectedBufName();
   const buf = getLogBuffer(bufName);
   const viewHeight = getLogViewHeight();
   const displayCount = getDisplayLineCount(buf, getLogTextWidth());
@@ -1825,6 +1851,7 @@ const startAllFlag = process.argv.includes('--start-all');
 
 function main() {
   apps = loadConfig();
+  selectedIdx = apps.length > 0 ? 1 : 0;
 
   if (!process.stdout.isTTY) {
     console.error('devctl requires a TTY terminal.');
