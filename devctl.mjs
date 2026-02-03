@@ -789,6 +789,19 @@ function detectApps() {
   return candidates;
 }
 
+function parseSelection(input, max) {
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed === 'all') {
+    return Array.from({ length: max }, (_, i) => i);
+  }
+  const indices = new Set();
+  for (const token of trimmed.split(',')) {
+    const num = parseInt(token.trim(), 10);
+    if (!isNaN(num) && num >= 1 && num <= max) indices.add(num - 1);
+  }
+  return [...indices].sort((a, b) => a - b);
+}
+
 // ── Process Manager ─────────────────────────────────────
 
 async function startApp(name) {
@@ -1020,22 +1033,31 @@ async function cmdScan() {
 
   log(`Found ${BOLD}${candidates.length}${RESET} app(s) not yet registered:\n`);
 
-  let added = 0;
-  for (const c of candidates) {
-    log(`  ${BOLD}${c.name}${RESET}`);
-    log(`  dir:     ${c.dir}`);
-    log(`  command: ${c.command}`);
-    log(`  ports:   ${c.ports.join(', ')}`);
-    log(`  ${DIM}dev: ${c.devScript}${RESET}`);
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    log(`  ${BOLD}${i + 1})${RESET} ${BOLD}${c.name}${RESET}`);
+    log(`     dir:     ${c.dir}`);
+    log(`     command: ${c.command}`);
+    log(`     ports:   ${c.ports.join(', ')}`);
+    log(`     ${DIM}dev: ${c.devScript}${RESET}`);
     log('');
+  }
 
-    const answer = await askQuestion(`Add ${c.name}? (y/N/q to quit): `);
-    if (answer.toLowerCase() === 'q') {
-      log('Scan aborted.');
-      break;
-    }
-    if (answer.toLowerCase() !== 'y') continue;
+  const input = await askQuestion('Select apps to add (comma-separated numbers, "all", or empty to cancel): ');
+  if (!input.trim()) {
+    log('Scan cancelled.');
+    return;
+  }
 
+  const selected = parseSelection(input, candidates.length);
+  if (selected.length === 0) {
+    log('No valid selections.');
+    return;
+  }
+
+  const addedNames = [];
+  for (const idx of selected) {
+    const c = candidates[idx];
     let name = c.name;
     while (getApp(name)) {
       const alt = await askQuestion(`Name "${name}" already exists. Alternative name: `);
@@ -1047,20 +1069,30 @@ async function cmdScan() {
     const entry = { name, dir: c.dir, command: c.command, ports: c.ports };
     const err = validateAppEntry(entry);
     if (err) {
-      log(`${RED}Invalid entry: ${err}${RESET}`);
+      log(`${RED}Invalid entry for ${name}: ${err}${RESET}`);
       continue;
     }
 
     apps.push(entry);
-    added++;
+    addedNames.push(name);
     log(`${GREEN}Added ${name}.${RESET}`);
   }
 
-  if (added > 0) {
-    saveConfig(apps);
-    layout = calcLayout();
-    scheduleFullRender();
-    log(`${GREEN}${added} app(s) added.${RESET}`);
+  if (addedNames.length === 0) {
+    log('No apps were added.');
+    return;
+  }
+
+  saveConfig(apps);
+  layout = calcLayout();
+  scheduleFullRender();
+  log(`${GREEN}${addedNames.length} app(s) added.${RESET}`);
+
+  const startAnswer = await askQuestion(`Start ${addedNames.join(', ')} now? (y/N): `);
+  if (startAnswer.trim().toLowerCase() === 'y') {
+    for (const name of addedNames) {
+      await startApp(name);
+    }
   }
 }
 
@@ -1137,7 +1169,7 @@ function cmdHelp() {
   log(`  ${BOLD}restart${RESET} <name|all>  Restart an app (or all)`);
   log(`  ${BOLD}status${RESET} [name]       Show app status table`);
   log(`  ${BOLD}ports${RESET}               Check port availability`);
-  log(`  ${BOLD}scan${RESET}                Auto-detect apps in project tree`);
+  log(`  ${BOLD}scan${RESET}                Auto-detect apps (batch select)`);
   log(`  ${BOLD}add${RESET}                 Add a new app interactively`);
   log(`  ${BOLD}remove${RESET} <name>       Remove an app from config`);
   log(`  ${BOLD}list${RESET}                List configured apps`);
