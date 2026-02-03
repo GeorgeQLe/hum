@@ -407,9 +407,16 @@ function renderFull() {
   buf += moveTo(cmdRow, 0);
   buf += BOX.V + renderCmdContent(cols - 2) + BOX.V;
 
-  // Bottom border
+  // Bottom border with hints
   buf += moveTo(bottomRow, 0);
-  buf += BOX.BL + BOX.H.repeat(cols - 2) + BOX.BR;
+  const hints = getHints();
+  const hintsVis = stripAnsi(hints);
+  const hintFill = cols - 2 - 2 - hintsVis.length;
+  if (hintFill >= 0) {
+    buf += BOX.BL + BOX.H + ' ' + hints + ' ' + BOX.H.repeat(hintFill) + BOX.BR;
+  } else {
+    buf += BOX.BL + BOX.H.repeat(cols - 2) + BOX.BR;
+  }
 
   buf += positionCmdCursor() + CURSOR_SHOW;
   process.stdout.write(buf);
@@ -558,6 +565,37 @@ function positionCmdCursor() {
   return moveTo(cmdRow, 1 + 8 + cmdCursor); // 8 = "devctl> "
 }
 
+// ── Hotkey Hints ────────────────────────────────────────
+
+function getHints() {
+  if (questionMode) {
+    return `${DIM}Enter: submit${RESET}`;
+  }
+  if (focusArea === 'sidebar') {
+    return `${DIM}Tab: command │ ↑↓/jk: navigate │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
+  }
+  return `${DIM}Tab: sidebar │ ↑↓: history │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
+}
+
+function renderBottomBar() {
+  if (!layout) return;
+  const { cols, bottomRow } = layout;
+
+  const hints = getHints();
+  const hintsVis = stripAnsi(hints);
+  const fill = cols - 2 - 2 - hintsVis.length;
+
+  let buf = CURSOR_HIDE;
+  buf += moveTo(bottomRow, 0);
+  if (fill >= 0) {
+    buf += BOX.BL + BOX.H + ' ' + hints + ' ' + BOX.H.repeat(fill) + BOX.BR;
+  } else {
+    buf += BOX.BL + BOX.H.repeat(cols - 2) + BOX.BR;
+  }
+  buf += positionCmdCursor() + CURSOR_SHOW;
+  process.stdout.write(buf);
+}
+
 // ── Helpers ─────────────────────────────────────────────
 
 function appColor(name) {
@@ -580,6 +618,7 @@ function askQuestion(prompt) {
   return new Promise(resolve => {
     questionMode = { prompt, resolve, input: '', cursor: 0 };
     renderCommandLine();
+    renderBottomBar();
   });
 }
 
@@ -1209,6 +1248,7 @@ function handleSidebarKeypress(str, key) {
     focusArea = 'command';
     renderSidebar();
     renderCommandLine();
+    renderBottomBar();
     return;
   }
 
@@ -1237,6 +1277,7 @@ function handleSidebarKeypress(str, key) {
     focusArea = 'command';
     renderSidebar();
     renderCommandLine();
+    renderBottomBar();
     return;
   }
 
@@ -1244,6 +1285,7 @@ function handleSidebarKeypress(str, key) {
   if (str && str.length === 1 && !key.ctrl && !key.meta) {
     focusArea = 'command';
     renderSidebar();
+    renderBottomBar();
     handleCommandKeypress(str, key);
     return;
   }
@@ -1257,6 +1299,7 @@ function handleCommandKeypress(str, key) {
         focusArea = 'sidebar';
         renderSidebar();
         renderCommandLine();
+        renderBottomBar();
       }
     } else {
       handleTabCompletion();
@@ -1353,6 +1396,7 @@ function handleQuestionKeypress(str, key) {
     const resolve = questionMode.resolve;
     questionMode = null;
     renderCommandLine();
+    renderBottomBar();
     resolve(answer);
     return;
   }
