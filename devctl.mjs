@@ -565,7 +565,8 @@ function renderScanReadmeRow(rowIdx, width) {
   const c = candidates[cursorIdx];
 
   if (rowIdx === 0) {
-    const header = ` ${BOLD}${c.name}${RESET}  ${DIM}${c.dir}${RESET}`;
+    const nameStyle = scanMode.scanFocus === 'readme' ? INVERSE : BOLD;
+    const header = ` ${nameStyle}${c.name}${RESET}  ${DIM}${c.dir}${RESET}`;
     return fitToWidth(header, width);
   }
   if (rowIdx === 1) {
@@ -700,7 +701,8 @@ function positionCmdCursor() {
 function getHints() {
   if (scanMode) {
     const n = scanMode.selected.size;
-    return `${DIM}Space: toggle │ a: all │ Enter: add (${n}) │ Esc: cancel │ PgUp/Dn: scroll readme${RESET}`;
+    const tabHint = scanMode.scanFocus === 'candidates' ? 'Tab: readme' : 'Tab: list';
+    return `${DIM}Space: toggle │ a: all │ Enter: add (${n}) │ Esc: cancel │ ${tabHint} │ PgUp/Dn: scroll${RESET}`;
   }
   if (questionMode) {
     return `${DIM}Enter: submit${RESET}`;
@@ -1181,6 +1183,7 @@ async function cmdScan() {
     readmeCache: new Map(),
     readmeScrollPos: 0,
     candidateScroll: 0,
+    scanFocus: 'candidates',
   };
 
   layout = calcLayout();
@@ -1560,8 +1563,19 @@ function handleCommandKeypress(str, key) {
 function handleScanKeypress(str, key) {
   const { candidates, cursorIdx } = scanMode;
 
+  // Tab: toggle focus between candidates and readme
+  if (key.name === 'tab') {
+    scanMode.scanFocus = scanMode.scanFocus === 'candidates' ? 'readme' : 'candidates';
+    scheduleFullRender();
+    return;
+  }
+
   // Up / k
   if (key.name === 'up' || key.name === 'k') {
+    if (scanMode.scanFocus === 'readme') {
+      scrollScanReadme(-1);
+      return;
+    }
     if (cursorIdx > 0) {
       scanMode.cursorIdx--;
       scanMode.readmeScrollPos = 0;
@@ -1576,6 +1590,10 @@ function handleScanKeypress(str, key) {
 
   // Down / j
   if (key.name === 'down' || key.name === 'j') {
+    if (scanMode.scanFocus === 'readme') {
+      scrollScanReadme(1);
+      return;
+    }
     if (cursorIdx < candidates.length - 1) {
       scanMode.cursorIdx++;
       scanMode.readmeScrollPos = 0;
