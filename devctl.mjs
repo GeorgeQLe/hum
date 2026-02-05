@@ -144,6 +144,112 @@ function isPortFree(port) {
   });
 }
 
+async function getPortOwnerInfo(port) {
+  return new Promise(resolve => {
+    const proc = spawn('lsof', ['-i', `:${port}`, '-P', '-n', '-sTCP:LISTEN'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    proc.stdout.on('data', data => { stdout += data.toString(); });
+
+    proc.on('error', () => resolve(null));
+    proc.on('close', code => {
+      if (code !== 0 || !stdout.trim()) {
+        resolve(null);
+        return;
+      }
+
+      // Parse lsof output (skip header line)
+      const lines = stdout.trim().split('\n');
+      if (lines.length < 2) {
+        resolve(null);
+        return;
+      }
+
+      // Format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+      const parts = lines[1].split(/\s+/);
+      if (parts.length < 3) {
+        resolve(null);
+        return;
+      }
+
+      resolve({
+        command: parts[0],
+        pid: parseInt(parts[1], 10),
+        user: parts[2],
+      });
+    });
+  });
+}
+
+function findDevctlOwner(pid) {
+  for (const [name, entry] of procs.entries()) {
+    if (entry.status === 'running' && entry.proc && entry.proc.pid === pid) {
+      return name;
+    }
+  }
+  return null;
+}
+
+async function suggestAlternativePorts(basePorts) {
+  const suggestions = [];
+  const offsets = [1, 10, 100];
+
+  for (const port of basePorts) {
+    let suggested = null;
+    for (const offset of offsets) {
+      const candidate = port + offset;
+      if (candidate < 65536 && await isPortFree(candidate)) {
+        suggested = candidate;
+        break;
+      }
+    }
+    suggestions.push({ original: port, suggested });
+  }
+
+  return suggestions;
+}
+
+async function killExternalProcess(pid) {
+  return new Promise(resolve => {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch (e) {
+      if (e.code === 'EPERM') {
+        resolve({ success: false, reason: 'permission' });
+        return;
+      }
+      resolve({ success: false, reason: 'error' });
+      return;
+    }
+
+    // Wait for process to exit, then SIGKILL if needed
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      attempts++;
+      try {
+        // Check if process still exists (signal 0 doesn't kill, just checks)
+        process.kill(pid, 0);
+        if (attempts >= 10) {
+          // Still alive after 2.5s, send SIGKILL
+          clearInterval(checkInterval);
+          try {
+            process.kill(pid, 'SIGKILL');
+            setTimeout(() => resolve({ success: true }), 500);
+          } catch {
+            resolve({ success: true }); // Already gone
+          }
+        }
+      } catch {
+        // Process no longer exists
+        clearInterval(checkInterval);
+        resolve({ success: true });
+      }
+    }, 250);
+  });
+}
+
 // ── ANSI Stripping ──────────────────────────────────────
 
 function stripAnsi(str) {
@@ -723,7 +829,7 @@ function getHints() {
     return `${DIM}Enter: submit${RESET}`;
   }
   if (focusArea === 'sidebar') {
-    return `${DIM}Tab: command │ ↑↓/jk: navigate │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
+    return `${DIM}Tab: command │ ↑↓/jk: navigate │ R: restart all │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
   }
   return `${DIM}Tab: sidebar │ ↑↓: history │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
 }
@@ -987,17 +1093,139 @@ async function startApp(name) {
     appendLog(name, `${YELLOW}Warning: directory does not exist: ${fullDir}${RESET}`);
   }
 
-  // Advisory port check
+  // Port conflict check with resolution options
   const portResults = await Promise.all(
     app.ports.map(async p => ({ port: p, free: await isPortFree(p) })),
   );
   const taken = portResults.filter(r => !r.free);
+
   if (taken.length > 0) {
-    appendLog(name, `${YELLOW}Warning: port(s) ${taken.map(r => r.port).join(', ')} already in use.${RESET}`);
-    const answer = await askQuestion(`Start ${name} anyway? (y/N): `);
-    if (answer.toLowerCase() !== 'y') {
-      appendLog(name, 'Start cancelled.');
-      return;
+    // Check each taken port for owner info
+    for (const { port } of taken) {
+      const ownerInfo = await getPortOwnerInfo(port);
+
+      if (!ownerInfo) {
+        // Couldn't identify owner, fall back to simple prompt
+        appendLog(name, `${YELLOW}⚠ Port ${port} is in use by unknown process${RESET}`);
+        const answer = await askQuestion(`Start ${name} anyway? (y/N): `);
+        if (answer.toLowerCase() !== 'y') {
+          appendLog(name, 'Start cancelled.');
+          return;
+        }
+        continue;
+      }
+
+      // Check if it's a devctl-managed app
+      const devctlApp = findDevctlOwner(ownerInfo.pid);
+
+      if (devctlApp) {
+        // Port is used by another devctl-managed app
+        appendLog(name, `${YELLOW}⚠ Port ${port} is used by devctl app "${devctlApp}" (running)${RESET}`);
+        appendLog(name, '');
+
+        // Get alternative port suggestion
+        const suggestions = await suggestAlternativePorts([port]);
+        const altPort = suggestions[0]?.suggested;
+
+        appendLog(name, 'Options:');
+        appendLog(name, `  ${BOLD}[r]${RESET} Restart ${devctlApp}, then start this app`);
+        if (altPort) {
+          appendLog(name, `  ${BOLD}[a]${RESET} Use alternative port (${altPort} is free)`);
+        }
+        appendLog(name, `  ${BOLD}[s]${RESET} Start anyway (may fail)`);
+        appendLog(name, `  ${BOLD}[c]${RESET} Cancel`);
+        appendLog(name, '');
+
+        const validChoices = altPort ? ['r', 'a', 's', 'c'] : ['r', 's', 'c'];
+        let choice = '';
+        while (!validChoices.includes(choice.toLowerCase())) {
+          choice = await askQuestion(`Choice (${validChoices.join('/')}): `);
+          if (!validChoices.includes(choice.toLowerCase())) {
+            appendLog(name, `${DIM}Invalid choice. Please enter ${validChoices.join(', ')}.${RESET}`);
+          }
+        }
+
+        switch (choice.toLowerCase()) {
+          case 'r':
+            appendLog(name, `Restarting ${devctlApp}...`);
+            await restartApp(devctlApp);
+            // Re-check if port is now free
+            if (!await isPortFree(port)) {
+              appendLog(name, `${RED}Port ${port} still in use after restart. Start cancelled.${RESET}`);
+              return;
+            }
+            break;
+          case 'a':
+            appendLog(name, `${DIM}Note: Using alternative port ${altPort}. Update your app config if needed.${RESET}`);
+            // Continue with start - the app will need to use the alternative port
+            break;
+          case 's':
+            appendLog(name, `${DIM}Starting anyway...${RESET}`);
+            break;
+          case 'c':
+            appendLog(name, 'Start cancelled.');
+            return;
+        }
+      } else {
+        // External process
+        appendLog(name, `${YELLOW}⚠ Port ${port} is in use by external process:${RESET}`);
+        appendLog(name, `  PID: ${ownerInfo.pid}, Command: ${ownerInfo.command}, User: ${ownerInfo.user}`);
+        appendLog(name, '');
+
+        // Get alternative port suggestion
+        const suggestions = await suggestAlternativePorts([port]);
+        const altPort = suggestions[0]?.suggested;
+
+        appendLog(name, 'Options:');
+        appendLog(name, `  ${BOLD}[k]${RESET} Kill the process and start`);
+        if (altPort) {
+          appendLog(name, `  ${BOLD}[a]${RESET} Use alternative port (${altPort} is free)`);
+        }
+        appendLog(name, `  ${BOLD}[s]${RESET} Start anyway (may fail)`);
+        appendLog(name, `  ${BOLD}[c]${RESET} Cancel`);
+        appendLog(name, '');
+
+        const validChoices = altPort ? ['k', 'a', 's', 'c'] : ['k', 's', 'c'];
+        let choice = '';
+        while (!validChoices.includes(choice.toLowerCase())) {
+          choice = await askQuestion(`Choice (${validChoices.join('/')}): `);
+          if (!validChoices.includes(choice.toLowerCase())) {
+            appendLog(name, `${DIM}Invalid choice. Please enter ${validChoices.join(', ')}.${RESET}`);
+          }
+        }
+
+        switch (choice.toLowerCase()) {
+          case 'k':
+            appendLog(name, `Killing process ${ownerInfo.pid}...`);
+            const killResult = await killExternalProcess(ownerInfo.pid);
+            if (!killResult.success) {
+              if (killResult.reason === 'permission') {
+                appendLog(name, `${RED}Permission denied. Try running with sudo or kill manually.${RESET}`);
+              } else {
+                appendLog(name, `${RED}Failed to kill process.${RESET}`);
+              }
+              appendLog(name, 'Start cancelled.');
+              return;
+            }
+            // Verify port is now free
+            await new Promise(r => setTimeout(r, 500));
+            if (!await isPortFree(port)) {
+              appendLog(name, `${RED}Port ${port} still in use. Start cancelled.${RESET}`);
+              return;
+            }
+            appendLog(name, `${GREEN}Process killed successfully.${RESET}`);
+            break;
+          case 'a':
+            appendLog(name, `${DIM}Note: Using alternative port ${altPort}. Update your app config if needed.${RESET}`);
+            break;
+          case 's':
+            appendLog(name, `${DIM}Starting anyway...${RESET}`);
+            break;
+          case 'c':
+            appendLog(name, 'Start cancelled.');
+            return;
+        }
+      }
     }
   }
 
@@ -1169,16 +1397,39 @@ async function cmdPorts() {
   if (apps.length === 0) { log('No apps configured.'); return; }
 
   const allPorts = [...new Set(apps.flatMap(a => a.ports))];
-  const results = {};
-  await Promise.all(allPorts.map(async p => { results[p] = await isPortFree(p); }));
+  const portInfo = {};
 
-  log(`${BOLD}${'PORT'.padEnd(8)}${'STATUS'.padEnd(10)}APP${RESET}`);
+  // Check port status and get owner info for taken ports
+  await Promise.all(allPorts.map(async p => {
+    const free = await isPortFree(p);
+    if (free) {
+      portInfo[p] = { free: true, owner: null };
+    } else {
+      const owner = await getPortOwnerInfo(p);
+      portInfo[p] = { free: false, owner };
+    }
+  }));
+
+  log(`${BOLD}${'PORT'.padEnd(8)}${'STATUS'.padEnd(10)}${'APP'.padEnd(20)}OWNER${RESET}`);
   for (const app of apps) {
     for (const port of app.ports) {
-      const free = results[port];
-      const color = free ? GREEN : RED;
-      const label = free ? 'free' : 'in use';
-      log(`${String(port).padEnd(8)}${color}${label.padEnd(10)}${RESET}${app.name}`);
+      const info = portInfo[port];
+      const color = info.free ? GREEN : RED;
+      const label = info.free ? 'free' : 'in use';
+
+      let ownerStr = '';
+      if (!info.free && info.owner) {
+        const devctlApp = findDevctlOwner(info.owner.pid);
+        if (devctlApp) {
+          ownerStr = `${DIM}devctl:${devctlApp}${RESET}`;
+        } else {
+          ownerStr = `${DIM}${info.owner.command} (PID ${info.owner.pid})${RESET}`;
+        }
+      } else if (!info.free) {
+        ownerStr = `${DIM}unknown${RESET}`;
+      }
+
+      log(`${String(port).padEnd(8)}${color}${label.padEnd(10)}${RESET}${app.name.padEnd(20)}${ownerStr}`);
     }
   }
 }
@@ -1465,6 +1716,12 @@ function handleSidebarKeypress(str, key) {
     renderSidebar();
     renderCommandLine();
     renderBottomBar();
+    return;
+  }
+
+  // Shift+R → restart all apps
+  if (str === 'R') {
+    cmdRestart('all');
     return;
   }
 
