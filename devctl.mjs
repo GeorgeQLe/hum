@@ -174,18 +174,33 @@ function wrapLine(str, width) {
   let vis = 0;
   let segStart = 0;
   let i = 0;
+  let lastSpace = -1;      // index in str of last space
+  let lastSpaceVis = -1;   // visual position of last space
 
   while (i < str.length) {
     if (str[i] === '\x1b') {
       const m = str.slice(i).match(/^\x1b\[[0-9;]*[a-zA-Z]/);
       if (m) { i += m[0].length; continue; }
     }
+    if (str[i] === ' ') {
+      lastSpace = i;
+      lastSpaceVis = vis;
+    }
     vis++;
     i++;
     if (vis >= width && i < str.length) {
-      segments.push(str.slice(segStart, i));
-      segStart = i;
-      vis = 0;
+      // Break at last space if available, otherwise break at current position
+      if (lastSpace > segStart) {
+        segments.push(str.slice(segStart, lastSpace));
+        segStart = lastSpace + 1; // skip the space
+        vis = vis - lastSpaceVis - 1;
+      } else {
+        segments.push(str.slice(segStart, i));
+        segStart = i;
+        vis = 0;
+      }
+      lastSpace = -1;
+      lastSpaceVis = -1;
     }
   }
 
