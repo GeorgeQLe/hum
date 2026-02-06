@@ -17,6 +17,17 @@ devctl reads app definitions from `apps.json` at the project root and presents a
 
 Requires a TTY terminal with at least 40 columns and 12 rows.
 
+## Status Indicators
+
+The sidebar displays a status dot for each app:
+
+| Indicator | Color  | Meaning |
+| --------- | ------ | ------- |
+| ● | Green  | Running |
+| ● | Red    | Crashed |
+| ● | Yellow | Stopping |
+| ○ | Dim    | Stopped |
+
 ## Commands
 
 | Command              | Description                              |
@@ -29,20 +40,64 @@ Requires a TTY terminal with at least 40 columns and 12 rows.
 | `scan`               | Auto-detect apps in project tree         |
 | `add`                | Add a new app interactively              |
 | `remove <name>`      | Remove an app from config                |
+| `reload`             | Reload config from apps.json             |
+| `autorestart [name]` | View/toggle auto-restart status          |
 | `list`               | List configured apps with details        |
 | `help`               | Show available commands                  |
 | `quit`               | Stop all apps and exit                   |
 
 ## Keyboard Shortcuts
 
-| Key              | Action                                 |
-| ---------------- | -------------------------------------- |
-| `Tab`            | Toggle between sidebar and command line|
-| `Up/Down`, `j/k` | Navigate apps in sidebar              |
-| `PgUp/PgDn`     | Scroll log output                      |
-| `Ctrl+C`         | Quit                                  |
-| `Ctrl+U`         | Clear command line                     |
-| `Ctrl+W`         | Delete word                            |
+### Global
+
+| Key         | Action                     |
+| ----------- | -------------------------- |
+| `Ctrl+C`    | Quit devctl                |
+| `PgUp/PgDn` | Scroll log output          |
+
+### Sidebar (when focused)
+
+| Key              | Action                                    |
+| ---------------- | ----------------------------------------- |
+| `Tab`            | Switch focus to command line              |
+| `Up/Down`, `j/k` | Navigate apps                             |
+| `Shift+R`        | Restart all running apps                  |
+| `Enter`          | Switch to command line                    |
+
+### Command Line (when focused)
+
+| Key           | Action                         |
+| ------------- | ------------------------------ |
+| `Tab`         | Autocomplete / toggle sidebar  |
+| `/`           | Enter log search mode          |
+| `Ctrl+F`      | Enter log search mode          |
+| `Up/Down`     | Navigate command history       |
+| `Ctrl+U`      | Clear entire line              |
+| `Ctrl+W`      | Delete word before cursor      |
+| `Ctrl+A/Home` | Jump to beginning of line      |
+| `Ctrl+E/End`  | Jump to end of line            |
+
+### Log Search Mode
+
+| Key       | Action                              |
+| --------- | ----------------------------------- |
+| `n`       | Jump to next match                  |
+| `N`       | Jump to previous match              |
+| `Enter`   | Exit search (keep highlights)       |
+| `Esc`     | Exit search                         |
+| `Ctrl+U`  | Clear search pattern                |
+
+### Scan Mode
+
+| Key       | Action                              |
+| --------- | ----------------------------------- |
+| `Tab`     | Toggle focus: candidate list / README |
+| `Space`   | Toggle selection of current app     |
+| `a`       | Select all / deselect all           |
+| `j/k`     | Navigate candidates                 |
+| `Enter`   | Confirm and add selected apps       |
+| `Esc`     | Cancel scan                         |
+| `PgUp/Dn` | Scroll README pane                  |
 
 ## App Configuration
 
@@ -79,6 +134,80 @@ Each candidate is presented interactively for confirmation before being added.
 
 - Processes run in detached process groups
 - Stop sends SIGTERM with a 5-second timeout, then SIGKILL
-- Port availability is checked before starting (advisory, not blocking)
 - Stdout and stderr are captured and displayed in the log pane
 - Crashed processes are indicated with a red status dot
+
+## Port Conflict Handling
+
+When starting an app, devctl checks if the required ports are available. If a port is in use, you get interactive resolution options:
+
+**If the port is used by another devctl app:**
+- `[r]` Restart the blocking app, then start this one
+- `[a]` Use an alternative free port (if available)
+- `[s]` Start anyway (may fail)
+- `[c]` Cancel
+
+**If the port is used by an external process:**
+- `[k]` Kill the external process and start
+- `[a]` Use an alternative free port (if available)
+- `[s]` Start anyway (may fail)
+- `[c]` Cancel
+
+The `ports` command shows current port status and identifies which process owns each port.
+
+## System Logs
+
+The first entry in the sidebar (labeled "devctl") shows the system log. This captures:
+
+- App start/stop events
+- Status summaries from `start all`
+- Command output and errors
+- Scan results
+
+Select it to view devctl's internal activity separate from app logs.
+
+## Auto-Restart
+
+Apps can be configured to automatically restart when they crash:
+
+```json
+{
+  "name": "my-app",
+  "dir": "apps/my-app",
+  "command": "pnpm dev",
+  "ports": [3000],
+  "autoRestart": true,
+  "restartDelay": 3000,
+  "maxRestarts": 5
+}
+```
+
+- **autoRestart** - Enable automatic restart on crash (default: false)
+- **restartDelay** - Milliseconds to wait before restarting (default: 3000)
+- **maxRestarts** - Maximum restart attempts before giving up (default: 5)
+
+Use `autorestart` command to view status or toggle at runtime:
+- `autorestart` - Show status for all apps
+- `autorestart <name>` - Toggle auto-restart for an app
+- `autorestart <name> on|off` - Enable/disable explicitly
+
+## Config Reload
+
+The `reload` command re-reads `apps.json` without restarting devctl:
+
+- **Added apps** appear in the sidebar immediately
+- **Removed apps** prompt to stop if running, then are removed
+- **Changed apps** prompt to restart with the new config
+
+This allows you to edit the config file externally and apply changes without losing log history or restarting running apps.
+
+## Log Search
+
+Press `/` or `Ctrl+F` (when command line is empty) to search the current log buffer:
+
+- Type your search pattern (supports regex)
+- Matches are highlighted in yellow, current match in magenta
+- Press `n` to jump to next match, `N` for previous
+- Press `Enter` or `Esc` to exit search mode
+
+The search is case-insensitive and updates as you type.
