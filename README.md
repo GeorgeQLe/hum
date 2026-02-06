@@ -8,11 +8,40 @@ A terminal UI for managing multiple local dev servers from a single pane.
 
 devctl reads app definitions from `apps.json` at the project root and presents a split-screen TUI: a sidebar listing all registered apps with live status indicators, and a scrollable log pane showing output from the selected process. A command line at the bottom accepts commands to control apps.
 
+## Installation
+
+### Run directly (no install)
+
+```sh
+./devctl.mjs
+```
+
+### Install globally from local directory
+
+```sh
+npm install -g .
+devctl  # now available anywhere
+```
+
+### Install globally from npm
+
+```sh
+npm install -g devctl
+devctl
+```
+
+### Publish to npm (maintainers)
+
+```sh
+npm login
+npm publish
+```
+
 ## Usage
 
 ```sh
-./scripts/devctl.mjs              # launch the TUI
-./scripts/devctl.mjs --start-all  # launch and start all apps immediately
+devctl              # launch the TUI
+devctl --start-all  # launch and start all apps immediately
 ```
 
 Requires a TTY terminal with at least 40 columns and 12 rows.
