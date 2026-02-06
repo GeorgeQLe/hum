@@ -78,6 +78,10 @@ let tabState = null;
 let scanMode = null;
 // When active: { candidates, cursorIdx, selected: Set, readmeCache: Map, readmeScrollPos, candidateScroll }
 
+// Search mode state
+let searchMode = null;
+// When active: { pattern, matches: [{lineIdx, start, end}], matchIdx, regex }
+
 // Scan skip directories
 const SCAN_SKIP_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', '.turbo',
@@ -109,12 +113,19 @@ function loadConfig() {
 }
 
 function saveConfig(data) {
-  const clean = data.map(a => ({
-    name: a.name,
-    dir: a.dir,
-    command: a.command,
-    ports: a.ports,
-  }));
+  const clean = data.map(a => {
+    const entry = {
+      name: a.name,
+      dir: a.dir,
+      command: a.command,
+      ports: a.ports,
+    };
+    // Preserve auto-restart settings if present
+    if (a.autoRestart !== undefined) entry.autoRestart = a.autoRestart;
+    if (a.restartDelay !== undefined) entry.restartDelay = a.restartDelay;
+    if (a.maxRestarts !== undefined) entry.maxRestarts = a.maxRestarts;
+    return entry;
+  });
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(clean, null, 2) + '\n');
 }
 
@@ -129,6 +140,20 @@ function validateAppEntry(entry) {
     !entry.ports.every(p => typeof p === 'number' && Number.isInteger(p) && p > 0 && p < 65536)
   ) {
     return '"ports" must be a non-empty array of integers 1\u201365535';
+  }
+  // Validate optional auto-restart fields
+  if (entry.autoRestart !== undefined && typeof entry.autoRestart !== 'boolean') {
+    return '"autoRestart" must be a boolean';
+  }
+  if (entry.restartDelay !== undefined) {
+    if (typeof entry.restartDelay !== 'number' || entry.restartDelay < 0) {
+      return '"restartDelay" must be a non-negative number';
+    }
+  }
+  if (entry.maxRestarts !== undefined) {
+    if (typeof entry.maxRestarts !== 'number' || entry.maxRestarts < 0 || !Number.isInteger(entry.maxRestarts)) {
+      return '"maxRestarts" must be a non-negative integer';
+    }
   }
   return null;
 }
@@ -209,6 +234,39 @@ async function suggestAlternativePorts(basePorts) {
   }
 
   return suggestions;
+}
+
+async function checkPortConflicts(appList) {
+  // Check all ports for all apps in parallel
+  const allPorts = new Set();
+  for (const app of appList) {
+    for (const port of app.ports) {
+      allPorts.add(port);
+    }
+  }
+
+  const portStatus = new Map();
+  await Promise.all(
+    [...allPorts].map(async port => {
+      const free = await isPortFree(port);
+      portStatus.set(port, free);
+    })
+  );
+
+  // Categorize apps into conflict-free and conflicting
+  const conflictFree = [];
+  const conflicting = [];
+
+  for (const app of appList) {
+    const hasConflict = app.ports.some(p => !portStatus.get(p));
+    if (hasConflict) {
+      conflicting.push(app);
+    } else {
+      conflictFree.push(app);
+    }
+  }
+
+  return { conflictFree, conflicting };
 }
 
 async function killExternalProcess(pid) {
@@ -639,7 +697,12 @@ function renderLogRow(rowIdx, width, displayLines, scrollPos) {
   const lineIdx = scrollPos + (rowIdx - 1);
 
   if (displayLines && lineIdx >= 0 && lineIdx < displayLines.length) {
-    return fitToWidth(' ' + displayLines[lineIdx], width);
+    let line = displayLines[lineIdx];
+    // Apply search highlighting if in search mode
+    if (searchMode && searchMode.pattern) {
+      line = highlightSearchInLine(line, lineIdx);
+    }
+    return fitToWidth(' ' + line, width);
   }
 
   return ' '.repeat(width);
@@ -797,6 +860,13 @@ function renderCommandLine() {
 }
 
 function renderCmdContent(width) {
+  if (searchMode) {
+    const count = searchMode.matches.length;
+    const pos = searchMode.matchIdx >= 0 ? searchMode.matchIdx + 1 : 0;
+    const countStr = count > 0 ? ` [${pos}/${count}]` : ' [no matches]';
+    const content = `${BOLD}/${RESET}${searchMode.pattern}${DIM}${countStr}${RESET}`;
+    return fitToWidth(content, width);
+  }
   if (questionMode) {
     const content = questionMode.prompt + questionMode.input;
     return fitToWidth(content, width);
@@ -810,11 +880,147 @@ function positionCmdCursor() {
   if (!layout) return '';
   const { cmdRow } = layout;
 
+  if (searchMode) {
+    return moveTo(cmdRow, 1 + 1 + searchMode.pattern.length); // 1 = "/"
+  }
   if (questionMode) {
     const promptLen = questionMode.prompt.length;
     return moveTo(cmdRow, 1 + promptLen + questionMode.cursor);
   }
   return moveTo(cmdRow, 1 + 8 + cmdCursor); // 8 = "devctl> "
+}
+
+// ── Search Mode Functions ───────────────────────────────
+
+function enterSearchMode() {
+  searchMode = {
+    pattern: '',
+    matches: [],
+    matchIdx: -1,
+    regex: null,
+  };
+  scheduleFullRender();
+}
+
+function exitSearchMode() {
+  searchMode = null;
+  scheduleFullRender();
+}
+
+function updateSearchMatches() {
+  if (!searchMode || !searchMode.pattern) {
+    searchMode.matches = [];
+    searchMode.matchIdx = -1;
+    searchMode.regex = null;
+    return;
+  }
+
+  try {
+    searchMode.regex = new RegExp(searchMode.pattern, 'gi');
+  } catch {
+    // Invalid regex, treat as literal
+    const escaped = searchMode.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    searchMode.regex = new RegExp(escaped, 'gi');
+  }
+
+  const bufName = getSelectedBufName();
+  const buf = getLogBuffer(bufName);
+  const displayLines = getDisplayLines(buf, getLogTextWidth());
+
+  searchMode.matches = [];
+  for (let i = 0; i < displayLines.length; i++) {
+    const line = stripAnsi(displayLines[i]);
+    searchMode.regex.lastIndex = 0;
+    let match;
+    while ((match = searchMode.regex.exec(line)) !== null) {
+      searchMode.matches.push({
+        lineIdx: i,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    }
+  }
+
+  // Update match index
+  if (searchMode.matches.length > 0) {
+    if (searchMode.matchIdx < 0) {
+      searchMode.matchIdx = 0;
+    } else if (searchMode.matchIdx >= searchMode.matches.length) {
+      searchMode.matchIdx = searchMode.matches.length - 1;
+    }
+  } else {
+    searchMode.matchIdx = -1;
+  }
+}
+
+function navigateSearch(delta) {
+  if (!searchMode || searchMode.matches.length === 0) return;
+
+  searchMode.matchIdx += delta;
+  if (searchMode.matchIdx < 0) {
+    searchMode.matchIdx = searchMode.matches.length - 1;
+  } else if (searchMode.matchIdx >= searchMode.matches.length) {
+    searchMode.matchIdx = 0;
+  }
+
+  // Scroll to show the current match
+  const match = searchMode.matches[searchMode.matchIdx];
+  const bufName = getSelectedBufName();
+  const buf = getLogBuffer(bufName);
+  const viewHeight = getLogViewHeight();
+
+  if (match.lineIdx < buf.scrollPos) {
+    buf.scrollPos = match.lineIdx;
+    buf.follow = false;
+  } else if (match.lineIdx >= buf.scrollPos + viewHeight) {
+    buf.scrollPos = match.lineIdx - viewHeight + 1;
+    buf.follow = false;
+  }
+
+  renderLogPane();
+  renderCommandLine();
+}
+
+function highlightSearchInLine(line, lineIdx) {
+  if (!searchMode || !searchMode.regex || searchMode.matches.length === 0) {
+    return line;
+  }
+
+  // Find matches on this line
+  const lineMatches = searchMode.matches.filter(m => m.lineIdx === lineIdx);
+  if (lineMatches.length === 0) return line;
+
+  const stripped = stripAnsi(line);
+  const HIGHLIGHT = '\x1b[43m\x1b[30m'; // Yellow background, black text
+  const CURRENT = '\x1b[45m\x1b[37m';   // Magenta background, white text
+
+  // Build highlighted string
+  let result = '';
+  let lastEnd = 0;
+
+  // Sort matches by start position
+  lineMatches.sort((a, b) => a.start - b.start);
+
+  for (const m of lineMatches) {
+    // Add text before match
+    if (m.start > lastEnd) {
+      result += stripped.slice(lastEnd, m.start);
+    }
+    // Add highlighted match
+    const isCurrent = searchMode.matchIdx >= 0 &&
+      searchMode.matches[searchMode.matchIdx].lineIdx === lineIdx &&
+      searchMode.matches[searchMode.matchIdx].start === m.start;
+    const hl = isCurrent ? CURRENT : HIGHLIGHT;
+    result += hl + stripped.slice(m.start, m.end) + RESET;
+    lastEnd = m.end;
+  }
+
+  // Add remaining text
+  if (lastEnd < stripped.length) {
+    result += stripped.slice(lastEnd);
+  }
+
+  return result;
 }
 
 // ── Hotkey Hints ────────────────────────────────────────
@@ -825,13 +1031,18 @@ function getHints() {
     const tabHint = scanMode.scanFocus === 'candidates' ? 'Tab: readme' : 'Tab: list';
     return `${DIM}Space: toggle │ a: all │ Enter: add (${n}) │ Esc: cancel │ ${tabHint} │ PgUp/Dn: scroll${RESET}`;
   }
+  if (searchMode) {
+    const count = searchMode.matches.length;
+    const pos = searchMode.matchIdx >= 0 ? searchMode.matchIdx + 1 : 0;
+    return `${DIM}Enter/Esc: exit │ n: next │ N: prev │ ${pos}/${count} matches${RESET}`;
+  }
   if (questionMode) {
     return `${DIM}Enter: submit${RESET}`;
   }
   if (focusArea === 'sidebar') {
     return `${DIM}Tab: command │ ↑↓/jk: navigate │ R: restart all │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
   }
-  return `${DIM}Tab: sidebar │ ↑↓: history │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
+  return `${DIM}Tab: sidebar │ /: search │ ↑↓: history │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
 }
 
 function renderBottomBar() {
@@ -1237,6 +1448,7 @@ async function startApp(name) {
     env: { ...process.env, TURBO_UI: 'stream' },
   });
 
+  const existingEntry = procs.get(name);
   const entry = {
     proc,
     status: 'running',
@@ -1244,6 +1456,8 @@ async function startApp(name) {
     exitCode: null,
     killTimer: null,
     stopResolve: null,
+    restartCount: existingEntry?.restartCount || 0,
+    autoRestartDisabled: existingEntry?.autoRestartDisabled || false,
   };
   procs.set(name, entry);
 
@@ -1261,6 +1475,7 @@ async function startApp(name) {
 
     if (wasStopping) {
       entry.status = 'stopped';
+      entry.restartCount = 0; // Reset restart count on manual stop
       appendLog(name, `${DIM}Stopped ${name}.${RESET}`);
     } else {
       entry.status = 'crashed';
@@ -1281,6 +1496,29 @@ async function startApp(name) {
     }
 
     scheduleFullRender();
+
+    // Auto-restart logic (only for crashes, not manual stops)
+    if (!wasStopping && !shuttingDown && !entry.autoRestartDisabled) {
+      const appConfig = getApp(name);
+      if (appConfig?.autoRestart) {
+        const maxRestarts = appConfig.maxRestarts ?? 5;
+        const restartDelay = appConfig.restartDelay ?? 3000;
+
+        if (entry.restartCount < maxRestarts) {
+          entry.restartCount++;
+          appendLog(name, `${YELLOW}Auto-restarting in ${restartDelay}ms (attempt ${entry.restartCount}/${maxRestarts})...${RESET}`);
+          setTimeout(() => {
+            if (!shuttingDown && entry.status === 'crashed') {
+              startApp(name).catch(e => {
+                appendLog(name, `${RED}Auto-restart failed: ${e.message}${RESET}`);
+              });
+            }
+          }, restartDelay);
+        } else {
+          appendLog(name, `${RED}Auto-restart limit reached (${maxRestarts} attempts). Use 'start ${name}' to restart manually.${RESET}`);
+        }
+      }
+    }
   });
 
   appendLog(name, `${GREEN}Started ${name}${RESET} (PID ${proc.pid})`);
@@ -1338,7 +1576,35 @@ async function stopAll() {
 async function cmdStart(args) {
   if (!args) { log('Usage: start <name|all>'); return; }
   if (args === 'all') {
-    for (const app of apps) await startApp(app.name);
+    // Filter to apps that aren't already running
+    const appsToStart = apps.filter(app => {
+      const entry = procs.get(app.name);
+      return !entry || entry.status !== 'running';
+    });
+
+    if (appsToStart.length === 0) {
+      log('All apps are already running.');
+      return;
+    }
+
+    // Pre-check port conflicts for parallel start optimization
+    log(`${DIM}Checking ports for ${appsToStart.length} app(s)...${RESET}`);
+    const { conflictFree, conflicting } = await checkPortConflicts(appsToStart);
+
+    // Start conflict-free apps in parallel
+    if (conflictFree.length > 0) {
+      log(`Starting ${conflictFree.length} app(s) in parallel...`);
+      await Promise.allSettled(conflictFree.map(app => startApp(app.name)));
+    }
+
+    // Start conflicting apps sequentially (they need interactive prompts)
+    if (conflicting.length > 0) {
+      log(`${YELLOW}${conflicting.length} app(s) have port conflicts, starting sequentially...${RESET}`);
+      for (const app of conflicting) {
+        await startApp(app.name);
+      }
+    }
+
     // Log summary of app statuses
     log('');
     log(`${BOLD}App Status Summary${RESET}`);
@@ -1578,6 +1844,186 @@ function cmdList() {
   }
 }
 
+async function cmdAutoRestart(args) {
+  if (!args) {
+    // Show current auto-restart status for all apps
+    log(`${BOLD}Auto-Restart Status${RESET}`);
+    for (const app of apps) {
+      const entry = procs.get(app.name);
+      const configEnabled = app.autoRestart ?? false;
+      const runtimeDisabled = entry?.autoRestartDisabled ?? false;
+      const effective = configEnabled && !runtimeDisabled;
+      const statusColor = effective ? GREEN : DIM;
+      const statusText = configEnabled
+        ? (runtimeDisabled ? 'disabled (runtime)' : 'enabled')
+        : 'disabled (config)';
+      const restartInfo = entry?.restartCount ? ` [${entry.restartCount} restarts]` : '';
+      log(`  ${statusColor}${app.name}${RESET}: ${statusText}${restartInfo}`);
+    }
+    log('');
+    log(`${DIM}Usage: autorestart <name> [on|off]${RESET}`);
+    return;
+  }
+
+  const parts = args.split(/\s+/);
+  const name = parts[0];
+  const action = parts[1]?.toLowerCase();
+
+  const app = getApp(name);
+  if (!app) {
+    log(`${RED}Unknown app: ${name}${RESET}`);
+    return;
+  }
+
+  if (!action) {
+    // Toggle
+    const entry = procs.get(name);
+    if (entry) {
+      entry.autoRestartDisabled = !entry.autoRestartDisabled;
+      const status = entry.autoRestartDisabled ? 'disabled' : 'enabled';
+      log(`Auto-restart for ${name}: ${status} (runtime)`);
+    } else {
+      log(`${name} has not been started yet. Auto-restart config: ${app.autoRestart ? 'enabled' : 'disabled'}`);
+    }
+    return;
+  }
+
+  if (action === 'on') {
+    const entry = procs.get(name);
+    if (entry) {
+      entry.autoRestartDisabled = false;
+      entry.restartCount = 0;
+    }
+    log(`Auto-restart for ${name}: enabled (runtime)`);
+  } else if (action === 'off') {
+    const entry = procs.get(name);
+    if (entry) {
+      entry.autoRestartDisabled = true;
+    }
+    log(`Auto-restart for ${name}: disabled (runtime)`);
+  } else {
+    log(`${RED}Invalid action: ${action}. Use 'on' or 'off'.${RESET}`);
+  }
+}
+
+function hasAppChanged(oldApp, newApp) {
+  if (oldApp.dir !== newApp.dir) return true;
+  if (oldApp.command !== newApp.command) return true;
+  if (oldApp.ports.length !== newApp.ports.length) return true;
+  if (!oldApp.ports.every((p, i) => p === newApp.ports[i])) return true;
+  return false;
+}
+
+function describeChanges(oldApp, newApp) {
+  const changes = [];
+  if (oldApp.dir !== newApp.dir) {
+    changes.push(`dir: ${oldApp.dir} → ${newApp.dir}`);
+  }
+  if (oldApp.command !== newApp.command) {
+    changes.push(`command: ${oldApp.command} → ${newApp.command}`);
+  }
+  if (oldApp.ports.join(',') !== newApp.ports.join(',')) {
+    changes.push(`ports: ${oldApp.ports.join(',')} → ${newApp.ports.join(',')}`);
+  }
+  return changes;
+}
+
+async function cmdReload() {
+  log('Reloading config from apps.json...');
+
+  const newApps = loadConfig();
+  const oldAppMap = new Map(apps.map(a => [a.name, a]));
+  const newAppMap = new Map(newApps.map(a => [a.name, a]));
+
+  const added = [];
+  const removed = [];
+  const changed = [];
+
+  // Find added and changed apps
+  for (const [name, newApp] of newAppMap) {
+    const oldApp = oldAppMap.get(name);
+    if (!oldApp) {
+      added.push(newApp);
+    } else if (hasAppChanged(oldApp, newApp)) {
+      changed.push({ name, oldApp, newApp });
+    }
+  }
+
+  // Find removed apps
+  for (const [name] of oldAppMap) {
+    if (!newAppMap.has(name)) {
+      removed.push(name);
+    }
+  }
+
+  if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+    log('No changes detected.');
+    return;
+  }
+
+  // Report what was found
+  if (added.length > 0) {
+    log(`${GREEN}Added: ${added.map(a => a.name).join(', ')}${RESET}`);
+  }
+  if (removed.length > 0) {
+    log(`${RED}Removed: ${removed.join(', ')}${RESET}`);
+  }
+  if (changed.length > 0) {
+    log(`${YELLOW}Changed: ${changed.map(c => c.name).join(', ')}${RESET}`);
+    for (const { name, oldApp, newApp } of changed) {
+      const desc = describeChanges(oldApp, newApp);
+      for (const d of desc) {
+        log(`  ${DIM}${name}: ${d}${RESET}`);
+      }
+    }
+  }
+
+  // Handle removed apps
+  for (const name of removed) {
+    const entry = procs.get(name);
+    if (entry && entry.status === 'running') {
+      const answer = await askQuestion(`${name} was removed but is running. Stop it? (y/N): `);
+      if (answer.toLowerCase() === 'y') {
+        await stopApp(name);
+      }
+    }
+    procs.delete(name);
+    logBuffers.delete(name);
+  }
+
+  // Handle changed apps
+  for (const { name } of changed) {
+    const entry = procs.get(name);
+    if (entry && entry.status === 'running') {
+      const answer = await askQuestion(`${name} config changed. Restart it? (y/N): `);
+      if (answer.toLowerCase() === 'y') {
+        await stopApp(name);
+        // Will restart with new config after apps array is updated
+      }
+    }
+  }
+
+  // Update apps array
+  apps = newApps;
+
+  // Restart changed apps that were stopped
+  for (const { name } of changed) {
+    const entry = procs.get(name);
+    if (entry && entry.status === 'stopped') {
+      await startApp(name);
+    }
+  }
+
+  // Fix selected index if needed
+  if (selectedIdx > apps.length) {
+    selectedIdx = apps.length;
+  }
+
+  layout = calcLayout();
+  scheduleFullRender();
+  log(`${GREEN}Config reloaded successfully.${RESET}`);
+}
+
 function cmdHelp() {
   log(`${BOLD}devctl${RESET} \u2014 Multi-App Dev Server Manager`);
   log('');
@@ -1589,6 +2035,8 @@ function cmdHelp() {
   log(`  ${BOLD}scan${RESET}                Auto-detect apps (batch select)`);
   log(`  ${BOLD}add${RESET}                 Add a new app interactively`);
   log(`  ${BOLD}remove${RESET} <name>       Remove an app from config`);
+  log(`  ${BOLD}reload${RESET}              Reload config from apps.json`);
+  log(`  ${BOLD}autorestart${RESET} [name]  View/toggle auto-restart`);
   log(`  ${BOLD}list${RESET}                List configured apps`);
   log(`  ${BOLD}help${RESET}                Show this help`);
   log(`  ${BOLD}quit${RESET}                Stop all and exit`);
@@ -1608,7 +2056,7 @@ function completer(line) {
   const parts = line.trimStart().split(/\s+/);
   const commands = [
     'start', 'stop', 'restart', 'status',
-    'ports', 'scan', 'add', 'remove', 'list', 'help', 'quit',
+    'ports', 'scan', 'add', 'remove', 'reload', 'autorestart', 'list', 'help', 'quit',
   ];
 
   if (parts.length <= 1) {
@@ -1620,7 +2068,7 @@ function completer(line) {
   const cmd = parts[0];
   const partial = parts[1] || '';
   const withAll  = ['start', 'stop', 'restart'];
-  const withName = ['start', 'stop', 'restart', 'status', 'remove'];
+  const withName = ['start', 'stop', 'restart', 'status', 'remove', 'autorestart'];
 
   if (withName.includes(cmd)) {
     const names = apps.map(a => a.name);
@@ -1649,6 +2097,8 @@ async function handleCommand(line) {
     case 'scan':    return cmdScan();
     case 'add':     return cmdAdd();
     case 'remove':  return cmdRemove(args);
+    case 'reload':  return cmdReload();
+    case 'autorestart': return cmdAutoRestart(args);
     case 'list':    return cmdList();
     case 'help':    return cmdHelp();
     case 'quit':
@@ -1677,6 +2127,9 @@ function handleKeypress(str, key) {
 
   // Scan mode
   if (scanMode) { handleScanKeypress(str, key); return; }
+
+  // Search mode
+  if (searchMode) { handleSearchKeypress(str, key); return; }
 
   // PageUp/PageDown in any focus mode
   if (key.name === 'pageup') {
@@ -1838,11 +2291,73 @@ function handleCommandKeypress(str, key) {
     return;
   }
 
+  // / or Ctrl+F: enter search mode (only when command line is empty)
+  if ((str === '/' || (key.ctrl && key.name === 'f')) && cmdInput.length === 0) {
+    enterSearchMode();
+    return;
+  }
+
   // Regular character
   if (str && str.length === 1 && !key.ctrl && !key.meta) {
     cmdInput = cmdInput.slice(0, cmdCursor) + str + cmdInput.slice(cmdCursor);
     cmdCursor++;
     renderCommandLine();
+  }
+}
+
+function handleSearchKeypress(str, key) {
+  // Escape or Enter: exit search mode
+  if (key.name === 'escape' || key.name === 'return') {
+    exitSearchMode();
+    return;
+  }
+
+  // n: next match
+  if (str === 'n' && !key.ctrl && !key.meta) {
+    navigateSearch(1);
+    return;
+  }
+
+  // N: previous match
+  if (str === 'N' && !key.ctrl && !key.meta) {
+    navigateSearch(-1);
+    return;
+  }
+
+  // Backspace: delete character
+  if (key.name === 'backspace') {
+    if (searchMode.pattern.length > 0) {
+      searchMode.pattern = searchMode.pattern.slice(0, -1);
+      updateSearchMatches();
+      renderLogPane();
+      renderCommandLine();
+      renderBottomBar();
+    }
+    return;
+  }
+
+  // Ctrl+U: clear pattern
+  if (key.ctrl && key.name === 'u') {
+    searchMode.pattern = '';
+    updateSearchMatches();
+    renderLogPane();
+    renderCommandLine();
+    renderBottomBar();
+    return;
+  }
+
+  // Regular character: add to pattern
+  if (str && str.length === 1 && !key.ctrl && !key.meta) {
+    searchMode.pattern += str;
+    updateSearchMatches();
+    // Jump to first match
+    if (searchMode.matches.length > 0 && searchMode.matchIdx < 0) {
+      searchMode.matchIdx = 0;
+      navigateSearch(0); // This will scroll to the match
+    }
+    renderLogPane();
+    renderCommandLine();
+    renderBottomBar();
   }
 }
 
