@@ -1339,6 +1339,20 @@ async function cmdStart(args) {
   if (!args) { log('Usage: start <name|all>'); return; }
   if (args === 'all') {
     for (const app of apps) await startApp(app.name);
+    // Log summary of app statuses
+    log('');
+    log(`${BOLD}App Status Summary${RESET}`);
+    for (const app of apps) {
+      const entry = procs.get(app.name);
+      const status = entry?.status || 'stopped';
+      const statusColor = status === 'running' ? GREEN
+        : status === 'crashed' ? RED
+        : status === 'stopping' ? YELLOW
+        : DIM;
+      const dot = status === 'running' || status === 'crashed' || status === 'stopping' ? '\u25cf' : '\u25cb';
+      log(`  ${statusColor}${dot}${RESET} ${app.name}: ${statusColor}${status}${RESET}`);
+    }
+    log('');
   } else {
     await startApp(args);
   }
@@ -2141,7 +2155,8 @@ const startAllFlag = process.argv.includes('--start-all');
 
 function main() {
   apps = loadConfig();
-  selectedIdx = apps.length > 0 ? 1 : 0;
+  // When --start-all, default to devctl system logs; otherwise first app
+  selectedIdx = startAllFlag ? 0 : (apps.length > 0 ? 1 : 0);
 
   if (!process.stdout.isTTY) {
     console.error('devctl requires a TTY terminal.');
