@@ -82,11 +82,27 @@ let scanMode = null;
 let searchMode = null;
 // When active: { pattern, matches: [{lineIdx, start, end}], matchIdx, regex }
 
+// Error detection state
+let errorBuffers = new Map(); // Map<appName, { errors: [], lastNotified }>
+let errorNotification = null; // { message, fadeTimer }
+
 // Scan skip directories
 const SCAN_SKIP_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', '.turbo',
   '_archive', 'clones', 'starters', 'archive',
 ]);
+
+// Error patterns to detect
+const ERROR_PATTERNS = [
+  /\bERROR\b/i,
+  /\bError:/,
+  /\bException\b/,
+  /\bFailed\b/i,
+  /\bFATAL\b/i,
+  /\bTypeError\b|\bReferenceError\b|\bSyntaxError\b/,
+  /at\s+\S+\s+\([^)]+:\d+:\d+\)/,  // Stack trace lines
+  /^\s+at\s+/,                      // Indented stack traces
+];
 
 // ── Config Manager ──────────────────────────────────────
 
@@ -456,6 +472,143 @@ function calcLayout() {
   };
 }
 
+// ── Clipboard Helper ────────────────────────────────────
+
+function copyToClipboard(text) {
+  return new Promise((resolve, reject) => {
+    const platform = process.platform;
+    let cmd, args;
+
+    if (platform === 'darwin') {
+      cmd = 'pbcopy';
+      args = [];
+    } else if (platform === 'win32') {
+      cmd = 'clip';
+      args = [];
+    } else {
+      // Linux - check if we're in WSL
+      const isWSL = fs.existsSync('/proc/version') &&
+        fs.readFileSync('/proc/version', 'utf-8').toLowerCase().includes('microsoft');
+      if (isWSL) {
+        cmd = 'clip.exe';
+        args = [];
+      } else {
+        // Try xclip first, fall back to xsel
+        cmd = 'xclip';
+        args = ['-selection', 'clipboard'];
+      }
+    }
+
+    const proc = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
+    proc.on('error', (err) => {
+      // Try xsel as fallback on Linux
+      if (cmd === 'xclip') {
+        const xsel = spawn('xsel', ['--clipboard', '--input'], { stdio: ['pipe', 'ignore', 'ignore'] });
+        xsel.on('error', () => reject(new Error('No clipboard utility found')));
+        xsel.on('close', code => code === 0 ? resolve() : reject(new Error('xsel failed')));
+        xsel.stdin.write(text);
+        xsel.stdin.end();
+      } else {
+        reject(err);
+      }
+    });
+    proc.on('close', code => code === 0 ? resolve() : reject(new Error(`${cmd} failed`)));
+    proc.stdin.write(text);
+    proc.stdin.end();
+  });
+}
+
+// ── Error Detection ─────────────────────────────────────
+
+function getErrorBuffer(name) {
+  if (!errorBuffers.has(name)) {
+    errorBuffers.set(name, { errors: [], lastNotified: 0 });
+  }
+  return errorBuffers.get(name);
+}
+
+function matchesErrorPattern(line) {
+  const stripped = stripAnsi(line);
+  return ERROR_PATTERNS.some(pattern => pattern.test(stripped));
+}
+
+function detectAndCaptureError(name, lineIdx) {
+  const buf = getLogBuffer(name);
+  const errBuf = getErrorBuffer(name);
+
+  // Capture from the error line until a blank line or end
+  const errorLines = [];
+  for (let i = lineIdx; i < buf.lines.length; i++) {
+    const line = buf.lines[i];
+    const stripped = stripAnsi(line).trim();
+    if (stripped.length === 0) break;
+    errorLines.push(line);
+  }
+
+  if (errorLines.length > 0) {
+    errBuf.errors.push({
+      timestamp: Date.now(),
+      lines: errorLines,
+    });
+
+    // Show notification if viewing this app
+    const selectedName = getSelectedBufName();
+    if (selectedName === name) {
+      showErrorNotification();
+    }
+
+    // Limit stored errors
+    if (errBuf.errors.length > 50) {
+      errBuf.errors.shift();
+    }
+  }
+}
+
+function showErrorNotification() {
+  // Clear existing fade timer
+  if (errorNotification?.fadeTimer) {
+    clearTimeout(errorNotification.fadeTimer);
+  }
+
+  errorNotification = {
+    message: 'Error detected! [e] copy',
+    fadeTimer: setTimeout(() => {
+      errorNotification = null;
+      renderBottomBar();
+    }, 5000),
+  };
+
+  renderBottomBar();
+}
+
+function getAppErrorCount(name) {
+  const errBuf = errorBuffers.get(name);
+  return errBuf ? errBuf.errors.length : 0;
+}
+
+function clearErrors(name) {
+  if (name === 'all') {
+    errorBuffers.clear();
+  } else if (errorBuffers.has(name)) {
+    errorBuffers.delete(name);
+  }
+}
+
+function getLastErrorText(name) {
+  const errBuf = errorBuffers.get(name);
+  if (!errBuf || errBuf.errors.length === 0) return null;
+  const lastError = errBuf.errors[errBuf.errors.length - 1];
+  return lastError.lines.map(stripAnsi).join('\n');
+}
+
+function getAllErrorsText(name) {
+  const errBuf = errorBuffers.get(name);
+  if (!errBuf || errBuf.errors.length === 0) return null;
+  return errBuf.errors
+    .map((e, i) => `--- Error ${i + 1} ---\n` + e.lines.map(stripAnsi).join('\n'))
+    .join('\n\n');
+}
+
 // ── Log Buffer Manager ─────────────────────────────────
 
 const LOG_MAX_LINES = 5000;
@@ -480,7 +633,13 @@ function appendLog(name, text, isStderr = false) {
     if (line.length === 0) continue;
     const clean = sanitizeLine(line);
     if (clean.length === 0) continue;
+    const lineIdx = buf.lines.length;
     buf.lines.push(isStderr ? `${DIM}${clean}${RESET}` : clean);
+
+    // Check for error patterns
+    if (matchesErrorPattern(clean)) {
+      detectAndCaptureError(name, lineIdx);
+    }
   }
 
   if (buf.lines.length > LOG_MAX_LINES) {
@@ -650,24 +809,29 @@ function renderSidebarRow(rowIdx, width) {
     : status === 'stopping' ? YELLOW
     : DIM;
 
-  // Truncate name if needed (width - 3 prefix - 2 dot+space)
-  const maxNameLen = width - 5;
+  // Error indicator
+  const errorCount = getAppErrorCount(app.name);
+  const errorIndicator = errorCount > 0 ? `${RED}!${RESET}` : '';
+  const errorVisLen = errorCount > 0 ? 1 : 0;
+
+  // Truncate name if needed (width - 3 prefix - 2 dot+space - error indicator)
+  const maxNameLen = width - 5 - errorVisLen;
   let name = app.name;
   if (name.length > maxNameLen) {
     name = name.slice(0, Math.max(1, maxNameLen - 1)) + '\u2026';
   }
 
   const prefix = isSelected ? ' \u25b8 ' : '   ';
-  const padLen = width - 3 - name.length - 2;
+  const padLen = width - 3 - name.length - 2 - errorVisLen;
   const padding = padLen > 0 ? ' '.repeat(padLen) : '';
 
   if (isSelected && focusArea === 'sidebar') {
-    return `${INVERSE}${prefix}${name}${padding} ${RESET}${dotColor}${dotChar}${RESET}`;
+    return `${INVERSE}${prefix}${name}${padding} ${RESET}${errorIndicator}${dotColor}${dotChar}${RESET}`;
   }
   if (isSelected) {
-    return `${BOLD}${prefix}${name}${RESET}${padding} ${dotColor}${dotChar}${RESET}`;
+    return `${BOLD}${prefix}${name}${RESET}${padding} ${errorIndicator}${dotColor}${dotChar}${RESET}`;
   }
-  return `${prefix}${name}${padding} ${dotColor}${dotChar}${RESET}`;
+  return `${prefix}${name}${padding} ${errorIndicator}${dotColor}${dotChar}${RESET}`;
 }
 
 function renderLogRow(rowIdx, width, displayLines, scrollPos) {
@@ -690,7 +854,9 @@ function renderLogRow(rowIdx, width, displayLines, scrollPos) {
       : DIM;
     const dot = (status === 'running' || status === 'crashed' || status === 'stopping')
       ? '\u25cf' : '\u25cb';
-    const header = ` ${BOLD}${app.name}${RESET}  ${statusColor}${dot} ${status}${RESET}`;
+    const errorCount = getAppErrorCount(app.name);
+    const errorSuffix = errorCount > 0 ? `  ${RED}${errorCount} error${errorCount > 1 ? 's' : ''}${RESET}` : '';
+    const header = ` ${BOLD}${app.name}${RESET}  ${statusColor}${dot} ${status}${RESET}${errorSuffix}`;
     return fitToWidth(header, width);
   }
 
@@ -1039,10 +1205,21 @@ function getHints() {
   if (questionMode) {
     return `${DIM}Enter: submit${RESET}`;
   }
-  if (focusArea === 'sidebar') {
-    return `${DIM}Tab: command │ ↑↓/jk: navigate │ R: restart all │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
+
+  // Check for error notification
+  if (errorNotification) {
+    return `${RED}${errorNotification.message}${RESET}`;
   }
-  return `${DIM}Tab: sidebar │ /: search │ ↑↓: history │ PgUp/Dn: scroll │ ^C: quit${RESET}`;
+
+  // Check for errors in current app
+  const selectedName = getSelectedBufName();
+  const errorCount = selectedName !== SYSTEM_NAME ? getAppErrorCount(selectedName) : 0;
+  const errorHint = errorCount > 0 ? ` │ e: copy error │ E: copy all` : '';
+
+  if (focusArea === 'sidebar') {
+    return `${DIM}Tab: command │ ↑↓/jk: navigate │ R: restart all │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
+  }
+  return `${DIM}Tab: sidebar │ /: search │ ↑↓: history │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
 }
 
 function renderBottomBar() {
@@ -1906,6 +2083,38 @@ async function cmdAutoRestart(args) {
   }
 }
 
+function cmdClearErrors(args) {
+  if (!args) {
+    // Clear errors for currently selected app
+    const selectedName = getSelectedBufName();
+    if (selectedName === SYSTEM_NAME) {
+      log(`${DIM}No app selected. Use 'clear-errors <name>' or 'clear-errors all'${RESET}`);
+      return;
+    }
+    clearErrors(selectedName);
+    log(`Errors cleared for ${selectedName}`);
+    scheduleFullRender();
+    return;
+  }
+
+  if (args === 'all') {
+    clearErrors('all');
+    log('All errors cleared');
+    scheduleFullRender();
+    return;
+  }
+
+  const app = getApp(args);
+  if (!app) {
+    log(`${RED}Unknown app: ${args}${RESET}`);
+    return;
+  }
+
+  clearErrors(args);
+  log(`Errors cleared for ${args}`);
+  scheduleFullRender();
+}
+
 function hasAppChanged(oldApp, newApp) {
   if (oldApp.dir !== newApp.dir) return true;
   if (oldApp.command !== newApp.command) return true;
@@ -2027,21 +2236,23 @@ async function cmdReload() {
 function cmdHelp() {
   log(`${BOLD}devctl${RESET} \u2014 Multi-App Dev Server Manager`);
   log('');
-  log(`  ${BOLD}start${RESET} <name|all>    Start an app (or all)`);
-  log(`  ${BOLD}stop${RESET} <name|all>     Stop an app (or all)`);
-  log(`  ${BOLD}restart${RESET} <name|all>  Restart an app (or all)`);
-  log(`  ${BOLD}status${RESET} [name]       Show app status table`);
-  log(`  ${BOLD}ports${RESET}               Check port availability`);
-  log(`  ${BOLD}scan${RESET}                Auto-detect apps (batch select)`);
-  log(`  ${BOLD}add${RESET}                 Add a new app interactively`);
-  log(`  ${BOLD}remove${RESET} <name>       Remove an app from config`);
-  log(`  ${BOLD}reload${RESET}              Reload config from apps.json`);
-  log(`  ${BOLD}autorestart${RESET} [name]  View/toggle auto-restart`);
-  log(`  ${BOLD}list${RESET}                List configured apps`);
-  log(`  ${BOLD}help${RESET}                Show this help`);
-  log(`  ${BOLD}quit${RESET}                Stop all and exit`);
+  log(`  ${BOLD}start${RESET} <name|all>      Start an app (or all)`);
+  log(`  ${BOLD}stop${RESET} <name|all>       Stop an app (or all)`);
+  log(`  ${BOLD}restart${RESET} <name|all>    Restart an app (or all)`);
+  log(`  ${BOLD}status${RESET} [name]         Show app status table`);
+  log(`  ${BOLD}ports${RESET}                 Check port availability`);
+  log(`  ${BOLD}scan${RESET}                  Auto-detect apps (batch select)`);
+  log(`  ${BOLD}add${RESET}                   Add a new app interactively`);
+  log(`  ${BOLD}remove${RESET} <name>         Remove an app from config`);
+  log(`  ${BOLD}reload${RESET}                Reload config from apps.json`);
+  log(`  ${BOLD}autorestart${RESET} [name]    View/toggle auto-restart`);
+  log(`  ${BOLD}clear-errors${RESET} [name|all]  Clear detected errors`);
+  log(`  ${BOLD}list${RESET}                  List configured apps`);
+  log(`  ${BOLD}help${RESET}                  Show this help`);
+  log(`  ${BOLD}quit${RESET}                  Stop all and exit`);
   log('');
   log(`${DIM}Tab: toggle sidebar/command  \u2191\u2193/j/k: navigate  PgUp/PgDn: scroll${RESET}`);
+  log(`${DIM}e: copy last error  E: copy all errors  /: search logs${RESET}`);
 }
 
 async function cmdQuit() {
@@ -2056,7 +2267,7 @@ function completer(line) {
   const parts = line.trimStart().split(/\s+/);
   const commands = [
     'start', 'stop', 'restart', 'status',
-    'ports', 'scan', 'add', 'remove', 'reload', 'autorestart', 'list', 'help', 'quit',
+    'ports', 'scan', 'add', 'remove', 'reload', 'autorestart', 'clear-errors', 'list', 'help', 'quit',
   ];
 
   if (parts.length <= 1) {
@@ -2067,8 +2278,8 @@ function completer(line) {
 
   const cmd = parts[0];
   const partial = parts[1] || '';
-  const withAll  = ['start', 'stop', 'restart'];
-  const withName = ['start', 'stop', 'restart', 'status', 'remove', 'autorestart'];
+  const withAll  = ['start', 'stop', 'restart', 'clear-errors'];
+  const withName = ['start', 'stop', 'restart', 'status', 'remove', 'autorestart', 'clear-errors'];
 
   if (withName.includes(cmd)) {
     const names = apps.map(a => a.name);
@@ -2099,6 +2310,7 @@ async function handleCommand(line) {
     case 'remove':  return cmdRemove(args);
     case 'reload':  return cmdReload();
     case 'autorestart': return cmdAutoRestart(args);
+    case 'clear-errors': return cmdClearErrors(args);
     case 'list':    return cmdList();
     case 'help':    return cmdHelp();
     case 'quit':
@@ -2192,6 +2404,18 @@ function handleSidebarKeypress(str, key) {
     return;
   }
 
+  // e → copy last error to clipboard
+  if (str === 'e' && !key.ctrl && !key.meta) {
+    copyLastError();
+    return;
+  }
+
+  // E → copy all errors to clipboard
+  if (str === 'E' && !key.ctrl && !key.meta) {
+    copyAllErrors();
+    return;
+  }
+
   // Any printable key → switch to command line and type it
   if (str && str.length === 1 && !key.ctrl && !key.meta) {
     focusArea = 'command';
@@ -2199,6 +2423,45 @@ function handleSidebarKeypress(str, key) {
     renderBottomBar();
     handleCommandKeypress(str, key);
     return;
+  }
+}
+
+async function copyLastError() {
+  const selectedName = getSelectedBufName();
+  if (selectedName === SYSTEM_NAME) {
+    log(`${DIM}No app selected${RESET}`);
+    return;
+  }
+  const text = getLastErrorText(selectedName);
+  if (!text) {
+    log(`${DIM}No errors to copy${RESET}`);
+    return;
+  }
+  try {
+    await copyToClipboard(text);
+    log(`${GREEN}Last error copied to clipboard${RESET}`);
+  } catch (err) {
+    log(`${RED}Failed to copy: ${err.message}${RESET}`);
+  }
+}
+
+async function copyAllErrors() {
+  const selectedName = getSelectedBufName();
+  if (selectedName === SYSTEM_NAME) {
+    log(`${DIM}No app selected${RESET}`);
+    return;
+  }
+  const text = getAllErrorsText(selectedName);
+  if (!text) {
+    log(`${DIM}No errors to copy${RESET}`);
+    return;
+  }
+  try {
+    await copyToClipboard(text);
+    const count = getAppErrorCount(selectedName);
+    log(`${GREEN}${count} error${count > 1 ? 's' : ''} copied to clipboard${RESET}`);
+  } catch (err) {
+    log(`${RED}Failed to copy: ${err.message}${RESET}`);
   }
 }
 
