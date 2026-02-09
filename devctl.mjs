@@ -1217,7 +1217,7 @@ function getHints() {
   const errorHint = errorCount > 0 ? ` │ e: copy error │ E: copy all` : '';
 
   if (focusArea === 'sidebar') {
-    return `${DIM}Tab: command │ ↑↓/jk: navigate │ R: restart all │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
+    return `${DIM}Tab: command │ ↑↓/jk: nav │ s/S/r: start/stop/restart │ R: all │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
   }
   return `${DIM}Tab: sidebar │ /: search │ ↑↓: history │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
 }
@@ -2401,6 +2401,27 @@ function handleSidebarKeypress(str, key) {
   // Shift+R → restart all apps
   if (str === 'R') {
     cmdRestart('all');
+    return;
+  }
+
+  // s → start selected app
+  if (str === 's' && !key.ctrl && !key.meta) {
+    const app = getSelectedApp();
+    if (app) startApp(app.name);
+    return;
+  }
+
+  // S → stop selected app
+  if (str === 'S') {
+    const app = getSelectedApp();
+    if (app) stopApp(app.name);
+    return;
+  }
+
+  // r → restart selected app
+  if (str === 'r' && !key.ctrl && !key.meta) {
+    const app = getSelectedApp();
+    if (app) restartApp(app.name);
     return;
   }
 

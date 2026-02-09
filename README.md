@@ -90,6 +90,9 @@ The sidebar displays a status dot for each app:
 | ---------------- | ----------------------------------------- |
 | `Tab`            | Switch focus to command line              |
 | `Up/Down`, `j/k` | Navigate apps                             |
+| `s`              | Start selected app                        |
+| `S`              | Stop selected app                         |
+| `r`              | Restart selected app                      |
 | `Shift+R`        | Restart all running apps                  |
 | `Enter`          | Switch to command line                    |
 
