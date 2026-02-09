@@ -86,6 +86,10 @@ let searchMode = null;
 let errorBuffers = new Map(); // Map<appName, { errors: [], lastNotified }>
 let errorNotification = null; // { message, fadeTimer }
 
+// Config file watcher state
+let configWatcher = null;
+let ignoreNextConfigChange = false;
+
 // Scan skip directories
 const SCAN_SKIP_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', '.turbo',
@@ -142,7 +146,41 @@ function saveConfig(data) {
     if (a.maxRestarts !== undefined) entry.maxRestarts = a.maxRestarts;
     return entry;
   });
+  ignoreNextConfigChange = true;
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(clean, null, 2) + '\n');
+}
+
+function setupConfigWatcher() {
+  if (configWatcher) return;
+
+  let debounceTimer = null;
+
+  configWatcher = fs.watch(CONFIG_PATH, (eventType) => {
+    if (eventType !== 'change') return;
+    if (ignoreNextConfigChange) {
+      ignoreNextConfigChange = false;
+      return;
+    }
+
+    // Debounce: file saves often trigger multiple events
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      log(`${DIM}Config file changed, reloading...${RESET}`);
+      cmdReload();
+    }, 100);
+  });
+
+  configWatcher.on('error', () => {
+    // Silently ignore watch errors
+  });
+}
+
+function closeConfigWatcher() {
+  if (configWatcher) {
+    configWatcher.close();
+    configWatcher = null;
+  }
 }
 
 function validateAppEntry(entry) {
@@ -2941,6 +2979,7 @@ async function shutdown(reason) {
   if (shuttingDown) return;
   shuttingDown = true;
   cleanupTerminal();
+  closeConfigWatcher();
   console.log(reason);
   const forceExit = setTimeout(() => process.exit(1), 10000);
   forceExit.unref();
@@ -2963,6 +3002,7 @@ function main() {
   }
 
   setupTerminal();
+  setupConfigWatcher();
   layout = calcLayout();
   tuiReady = true;
 
