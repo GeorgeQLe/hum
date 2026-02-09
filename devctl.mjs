@@ -90,6 +90,9 @@ let errorNotification = null; // { message, fadeTimer }
 let configWatcher = null;
 let ignoreNextConfigChange = false;
 
+// Timestamp display state
+let showTimestamps = false;
+
 // Scan skip directories
 const SCAN_SKIP_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', '.turbo',
@@ -435,9 +438,12 @@ function getLogTextWidth() {
 
 function getDisplayLines(buf, textWidth) {
   const result = [];
-  for (const line of buf.lines) {
+  for (let i = 0; i < buf.lines.length; i++) {
+    const line = buf.lines[i];
     const wrapped = wrapLine(line, textWidth);
-    for (const seg of wrapped) result.push(seg);
+    for (let j = 0; j < wrapped.length; j++) {
+      result.push({ text: wrapped[j], lineIdx: i, isFirst: j === 0 });
+    }
   }
   return result;
 }
@@ -653,7 +659,7 @@ const LOG_MAX_LINES = 5000;
 
 function getLogBuffer(name) {
   if (!logBuffers.has(name)) {
-    logBuffers.set(name, { lines: [], scrollPos: 0, follow: true });
+    logBuffers.set(name, { lines: [], timestamps: [], scrollPos: 0, follow: true });
   }
   return logBuffers.get(name);
 }
@@ -673,6 +679,7 @@ function appendLog(name, text, isStderr = false) {
     if (clean.length === 0) continue;
     const lineIdx = buf.lines.length;
     buf.lines.push(isStderr ? `${DIM}${clean}${RESET}` : clean);
+    buf.timestamps.push(Date.now());
 
     // Check for error patterns
     if (matchesErrorPattern(clean)) {
@@ -683,6 +690,7 @@ function appendLog(name, text, isStderr = false) {
   if (buf.lines.length > LOG_MAX_LINES) {
     const excess = buf.lines.length - LOG_MAX_LINES;
     buf.lines.splice(0, excess);
+    buf.timestamps.splice(0, excess);
     buf.scrollPos = Math.max(0, buf.scrollPos - excess);
   }
 
@@ -699,12 +707,15 @@ function appendLog(name, text, isStderr = false) {
 function log(msg) {
   const buf = getLogBuffer(SYSTEM_NAME);
   const lines = msg.split('\n');
+  const now = Date.now();
   for (const line of lines) {
     buf.lines.push(line);
+    buf.timestamps.push(now);
   }
   if (buf.lines.length > LOG_MAX_LINES) {
     const excess = buf.lines.length - LOG_MAX_LINES;
     buf.lines.splice(0, excess);
+    buf.timestamps.splice(0, excess);
     buf.scrollPos = Math.max(0, buf.scrollPos - excess);
   }
   if (buf.follow) {
@@ -898,15 +909,27 @@ function renderLogRow(rowIdx, width, displayLines, scrollPos) {
     return fitToWidth(header, width);
   }
 
-  const lineIdx = scrollPos + (rowIdx - 1);
+  const displayIdx = scrollPos + (rowIdx - 1);
 
-  if (displayLines && lineIdx >= 0 && lineIdx < displayLines.length) {
-    let line = displayLines[lineIdx];
-    // Apply search highlighting if in search mode
+  if (displayLines && displayIdx >= 0 && displayIdx < displayLines.length) {
+    const displayLine = displayLines[displayIdx];
+    let text = typeof displayLine === 'object' ? displayLine.text : displayLine;
+
+    // Apply search highlighting if in search mode (before timestamps)
     if (searchMode && searchMode.pattern) {
-      line = highlightSearchInLine(line, lineIdx);
+      text = highlightSearchInLine(text, displayIdx);
     }
-    return fitToWidth(' ' + line, width);
+
+    // Prepend timestamp if enabled and this is the first segment of a wrapped line
+    if (showTimestamps && typeof displayLine === 'object' && displayLine.isFirst) {
+      const logBuf = getLogBuffer(getSelectedBufName());
+      const ts = logBuf.timestamps[displayLine.lineIdx];
+      if (ts) {
+        text = `${DIM}${formatTimestamp(ts)}${RESET} ${text}`;
+      }
+    }
+
+    return fitToWidth(' ' + text, width);
   }
 
   return ' '.repeat(width);
@@ -1133,7 +1156,9 @@ function updateSearchMatches() {
 
   searchMode.matches = [];
   for (let i = 0; i < displayLines.length; i++) {
-    const line = stripAnsi(displayLines[i]);
+    const displayLine = displayLines[i];
+    const lineText = typeof displayLine === 'object' ? displayLine.text : displayLine;
+    const line = stripAnsi(lineText);
     searchMode.regex.lastIndex = 0;
     let match;
     while ((match = searchMode.regex.exec(line)) !== null) {
@@ -1257,7 +1282,7 @@ function getHints() {
   if (focusArea === 'sidebar') {
     return `${DIM}Tab: command │ ↑↓/jk: nav │ s/S/r: start/stop/restart │ R: all │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
   }
-  return `${DIM}Tab: sidebar │ /: search │ ↑↓: history │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
+  return `${DIM}Tab: sidebar │ /: search │ t: timestamps │ ↑↓: history │ PgUp/Dn: scroll${errorHint} │ ^C: quit${RESET}`;
 }
 
 function renderBottomBar() {
@@ -1295,6 +1320,14 @@ function formatUptime(startedAt) {
   if (hrs > 0)  return `${hrs}h ${mins % 60}m`;
   if (mins > 0) return `${mins}m ${secs % 60}s`;
   return `${secs}s`;
+}
+
+function formatTimestamp(ts) {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
 }
 
 function askQuestion(prompt) {
@@ -2616,6 +2649,14 @@ function handleCommandKeypress(str, key) {
   // / or Ctrl+F: enter search mode (only when command line is empty)
   if ((str === '/' || (key.ctrl && key.name === 'f')) && cmdInput.length === 0) {
     enterSearchMode();
+    return;
+  }
+
+  // Toggle timestamps when 't' pressed with empty command input
+  if (str === 't' && cmdInput.length === 0) {
+    showTimestamps = !showTimestamps;
+    log(`${DIM}Timestamps ${showTimestamps ? 'enabled' : 'disabled'}${RESET}`);
+    scheduleRender();
     return;
   }
 
