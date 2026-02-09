@@ -4,11 +4,6 @@
 
 ### High Priority
 
-- [ ] **Quick Keyboard Shortcuts** - Add shortcuts for the currently selected app in sidebar mode:
-  - `s` → start selected app
-  - `S` → stop selected app
-  - `r` → restart selected app (lowercase, keep `R` for restart all)
-
 - [ ] **Config File Watcher** - Auto-reload `apps.json` when it changes on disk using `fs.watch()`, eliminating need for manual `reload` command
 
 - [ ] **Environment Variables** - Support per-app environment variables in config:
@@ -137,4 +132,4 @@
 
 ## Completed
 
-_Move items here when done_
+- [x] **Quick Keyboard Shortcuts** - Added `s`/`S`/`r` shortcuts in sidebar mode for start/stop/restart selected app
