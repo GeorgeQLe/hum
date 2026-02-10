@@ -1,0 +1,19 @@
+# Binary
+devctl
+devctl.exe
+
+# Go
+*.test
+*.out
+
+# State
+.devctl-state.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
