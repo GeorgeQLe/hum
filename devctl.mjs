@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'apps.json');
+const STATE_PATH = path.join(PROJECT_ROOT, '.devctl-state.json');
 
 // ── ANSI & Terminal Control ─────────────────────────────
 
@@ -151,6 +152,35 @@ function saveConfig(data) {
   });
   ignoreNextConfigChange = true;
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(clean, null, 2) + '\n');
+}
+
+function saveSessionState() {
+  const runningApps = [...procs.entries()]
+    .filter(([, e]) => e.status === 'running')
+    .map(([name]) => name);
+  try {
+    fs.writeFileSync(STATE_PATH, JSON.stringify(runningApps, null, 2) + '\n');
+  } catch {
+    // Silent fail - state persistence is best-effort
+  }
+}
+
+function loadSessionState() {
+  if (!fs.existsSync(STATE_PATH)) return [];
+  try {
+    const raw = fs.readFileSync(STATE_PATH, 'utf-8');
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return [];
+    return data.filter(name => typeof name === 'string');
+  } catch {
+    return [];
+  }
+}
+
+function clearSessionState() {
+  try {
+    if (fs.existsSync(STATE_PATH)) fs.unlinkSync(STATE_PATH);
+  } catch {}
 }
 
 function setupConfigWatcher() {
@@ -2322,6 +2352,10 @@ function cmdHelp() {
   log(`  ${BOLD}help${RESET}                  Show this help`);
   log(`  ${BOLD}quit${RESET}                  Stop all and exit`);
   log('');
+  log(`${BOLD}Flags:${RESET}`);
+  log(`  ${DIM}--start-all${RESET}    Start all apps on launch`);
+  log(`  ${DIM}--restore${RESET}      Restore previous session`);
+  log('');
   log(`${DIM}Tab: toggle sidebar/command  \u2191\u2193/j/k: navigate  PgUp/PgDn: scroll${RESET}`);
   log(`${DIM}e: copy last error  E: copy all errors  /: search logs${RESET}`);
 }
@@ -3022,6 +3056,7 @@ async function shutdown(reason) {
   cleanupTerminal();
   closeConfigWatcher();
   console.log(reason);
+  saveSessionState();
   const forceExit = setTimeout(() => process.exit(1), 10000);
   forceExit.unref();
   await stopAll();
@@ -3031,6 +3066,47 @@ async function shutdown(reason) {
 // ── Main ────────────────────────────────────────────────
 
 const startAllFlag = process.argv.includes('--start-all');
+const restoreFlag = process.argv.includes('--restore');
+
+async function restoreSession() {
+  const savedApps = loadSessionState();
+
+  if (savedApps.length === 0) {
+    log(`${DIM}No previous session to restore.${RESET}`);
+    return;
+  }
+
+  // Validate apps exist in current config
+  const validApps = [];
+  const missingApps = [];
+
+  for (const name of savedApps) {
+    if (apps.some(a => a.name === name)) {
+      validApps.push(name);
+    } else {
+      missingApps.push(name);
+    }
+  }
+
+  if (missingApps.length > 0) {
+    log(`${YELLOW}Warning: Some apps no longer exist: ${missingApps.join(', ')}${RESET}`);
+  }
+
+  if (validApps.length === 0) {
+    log(`${DIM}No valid apps to restore.${RESET}`);
+    clearSessionState();
+    return;
+  }
+
+  log(`Restoring ${validApps.length} app(s) from previous session...`);
+
+  // Start apps (reuse cmdStart pattern for port conflict handling)
+  for (const name of validApps) {
+    await startApp(name);
+  }
+
+  clearSessionState();
+}
 
 function main() {
   apps = loadConfig();
@@ -3062,6 +3138,10 @@ function main() {
   if (startAllFlag) {
     cmdStart('all').catch(e => {
       log(`${RED}Error: ${e.message}${RESET}`);
+    });
+  } else if (restoreFlag) {
+    restoreSession().catch(e => {
+      log(`${RED}Error restoring session: ${e.message}${RESET}`);
     });
   }
 }
