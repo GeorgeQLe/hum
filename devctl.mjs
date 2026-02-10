@@ -5,6 +5,8 @@ import path from 'path';
 import { spawn } from 'child_process';
 import readline from 'readline';
 import net from 'net';
+import crypto from 'crypto';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,6 +14,9 @@ const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'apps.json');
 const STATE_PATH = path.join(PROJECT_ROOT, '.devctl-state.json');
+const SOCKET_DIR = path.join(os.tmpdir(), 'devctl-sockets');
+const PROJECT_HASH = crypto.createHash('md5').update(PROJECT_ROOT).digest('hex').slice(0, 12);
+const SOCKET_PATH = path.join(SOCKET_DIR, `devctl-${PROJECT_HASH}.sock`);
 
 // ── ANSI & Terminal Control ─────────────────────────────
 
@@ -214,6 +219,196 @@ function closeConfigWatcher() {
     configWatcher.close();
     configWatcher = null;
   }
+}
+
+// ── IPC Server ──────────────────────────────────────────
+
+let ipcServer = null;
+
+function setupIpcServer() {
+  try {
+    fs.mkdirSync(SOCKET_DIR, { recursive: true });
+  } catch {}
+
+  if (fs.existsSync(SOCKET_PATH)) {
+    // Test if a server is already listening (stale socket detection)
+    return new Promise((resolve) => {
+      const testConn = net.createConnection(SOCKET_PATH, () => {
+        // Another instance is running
+        testConn.destroy();
+        log(`${YELLOW}Warning: Another devctl instance appears to be running for this project.${RESET}`);
+        log(`${DIM}IPC server not started (socket in use).${RESET}`);
+        resolve();
+      });
+      testConn.on('error', () => {
+        // Stale socket, remove and create server
+        try { fs.unlinkSync(SOCKET_PATH); } catch {}
+        createIpcServer();
+        resolve();
+      });
+      testConn.setTimeout(2000, () => {
+        testConn.destroy();
+        try { fs.unlinkSync(SOCKET_PATH); } catch {}
+        createIpcServer();
+        resolve();
+      });
+    });
+  } else {
+    createIpcServer();
+    return Promise.resolve();
+  }
+}
+
+function createIpcServer() {
+  ipcServer = net.createServer(handleIpcConnection);
+  ipcServer.on('error', (err) => {
+    log(`${YELLOW}IPC server error: ${err.message}${RESET}`);
+  });
+  ipcServer.listen(SOCKET_PATH, () => {
+    try { fs.chmodSync(SOCKET_PATH, 0o600); } catch {}
+  });
+}
+
+function closeIpcServer() {
+  if (ipcServer) {
+    ipcServer.close();
+    ipcServer = null;
+  }
+  try { fs.unlinkSync(SOCKET_PATH); } catch {}
+}
+
+function handleIpcConnection(socket) {
+  let data = '';
+  const timeout = setTimeout(() => {
+    socket.destroy();
+  }, 5000);
+
+  socket.on('data', (chunk) => {
+    data += chunk.toString();
+    const nlIdx = data.indexOf('\n');
+    if (nlIdx !== -1) {
+      clearTimeout(timeout);
+      const line = data.slice(0, nlIdx);
+      try {
+        const msg = JSON.parse(line);
+        processIpcMessage(msg, socket);
+      } catch {
+        socket.write(JSON.stringify({ ok: false, error: 'Invalid JSON' }) + '\n');
+        socket.end();
+      }
+    }
+  });
+
+  socket.on('error', () => {
+    clearTimeout(timeout);
+  });
+
+  socket.on('close', () => {
+    clearTimeout(timeout);
+  });
+}
+
+async function processIpcMessage(msg, socket) {
+  try {
+    switch (msg.action) {
+      case 'add-app':
+        await handleIpcAddApp(msg, socket);
+        break;
+      case 'status':
+        handleIpcStatus(socket);
+        break;
+      case 'ping':
+        socket.write(JSON.stringify({ ok: true, pid: process.pid, project: PROJECT_ROOT }) + '\n');
+        socket.end();
+        break;
+      default:
+        socket.write(JSON.stringify({ ok: false, error: `Unknown action: ${msg.action}` }) + '\n');
+        socket.end();
+    }
+  } catch (err) {
+    socket.write(JSON.stringify({ ok: false, error: err.message }) + '\n');
+    socket.end();
+  }
+}
+
+async function handleIpcAddApp(msg, socket) {
+  const entry = msg.app;
+  if (!entry) {
+    socket.write(JSON.stringify({ ok: false, error: 'Missing "app" field' }) + '\n');
+    socket.end();
+    return;
+  }
+
+  // Resolve relative dir from cwd
+  const cwd = msg.cwd || PROJECT_ROOT;
+  if (entry.dir && !path.isAbsolute(entry.dir)) {
+    entry.dir = path.resolve(cwd, entry.dir);
+  }
+
+  // Make dir relative to PROJECT_ROOT
+  const relDir = path.relative(PROJECT_ROOT, entry.dir);
+  if (relDir.startsWith('..')) {
+    socket.write(JSON.stringify({ ok: false, error: `Directory is outside the project root: ${entry.dir}` }) + '\n');
+    socket.end();
+    return;
+  }
+  entry.dir = relDir || '.';
+
+  // Validate the entry
+  const err = validateAppEntry(entry);
+  if (err) {
+    socket.write(JSON.stringify({ ok: false, error: `Invalid app entry: ${err}` }) + '\n');
+    socket.end();
+    return;
+  }
+
+  // Check for duplicates by name
+  if (apps.some(a => a.name === entry.name)) {
+    socket.write(JSON.stringify({ ok: false, error: `App "${entry.name}" already exists` }) + '\n');
+    socket.end();
+    return;
+  }
+
+  // Check for duplicates by dir
+  const resolvedDir = path.resolve(PROJECT_ROOT, entry.dir);
+  if (apps.some(a => path.resolve(PROJECT_ROOT, a.dir) === resolvedDir)) {
+    const existing = apps.find(a => path.resolve(PROJECT_ROOT, a.dir) === resolvedDir);
+    socket.write(JSON.stringify({ ok: false, error: `Directory already registered as "${existing.name}"` }) + '\n');
+    socket.end();
+    return;
+  }
+
+  // Add the app
+  apps.push(entry);
+  saveConfig(apps);
+  log(`${GREEN}App "${entry.name}" added via IPC (dir: ${entry.dir})${RESET}`);
+
+  // Update TUI
+  layout = calcLayout();
+  scheduleFullRender();
+
+  // Optionally auto-start
+  if (msg.autoStart) {
+    await startApp(entry.name);
+  }
+
+  socket.write(JSON.stringify({ ok: true, name: entry.name, message: `Added "${entry.name}" to devctl` }) + '\n');
+  socket.end();
+}
+
+function handleIpcStatus(socket) {
+  const appStatuses = apps.map(a => {
+    const proc = procs.get(a.name);
+    return {
+      name: a.name,
+      dir: a.dir,
+      ports: a.ports,
+      status: proc ? proc.status : 'stopped',
+      pid: proc && proc.proc ? proc.proc.pid : null,
+    };
+  });
+  socket.write(JSON.stringify({ ok: true, apps: appStatuses, pid: process.pid, project: PROJECT_ROOT }) + '\n');
+  socket.end();
 }
 
 function validateAppEntry(entry) {
@@ -2356,6 +2551,14 @@ function cmdHelp() {
   log(`  ${DIM}--start-all${RESET}    Start all apps on launch`);
   log(`  ${DIM}--restore${RESET}      Restore previous session`);
   log('');
+  log(`${BOLD}Remote commands${RESET} (from another terminal):`);
+  log(`  ${DIM}devctl add <dir>${RESET}           Add app from directory`);
+  log(`  ${DIM}devctl add <dir> --start${RESET}   Add and start immediately`);
+  log(`  ${DIM}devctl add <dir> --name X${RESET}  Override detected name`);
+  log(`  ${DIM}devctl add <dir> --ports N${RESET} Override detected ports`);
+  log(`  ${DIM}devctl status${RESET}              Show running instance status`);
+  log(`  ${DIM}devctl ping${RESET}                Check if devctl is running`);
+  log('');
   log(`${DIM}Tab: toggle sidebar/command  \u2191\u2193/j/k: navigate  PgUp/PgDn: scroll${RESET}`);
   log(`${DIM}e: copy last error  E: copy all errors  /: search logs${RESET}`);
 }
@@ -3024,6 +3227,195 @@ function commonPrefix(strs) {
   return prefix;
 }
 
+// ── IPC Client ──────────────────────────────────────────
+
+function scanCurrentDir(dir) {
+  const pkgPath = path.join(dir, 'package.json');
+  if (!fs.existsSync(pkgPath)) {
+    return { error: 'No package.json found in this directory' };
+  }
+
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+  } catch {
+    return { error: 'Failed to parse package.json' };
+  }
+
+  if (!pkg.scripts || !pkg.scripts.dev) {
+    return { error: 'No "dev" script found in package.json' };
+  }
+
+  const devScript = pkg.scripts.dev;
+  const relDir = path.relative(PROJECT_ROOT, dir);
+  const name = extractName(pkg, relDir || '.');
+  const ports = detectPorts(devScript, dir);
+  const pm = detectPackageManager(dir, pkg);
+  const command = buildCommand(pm);
+
+  if (ports.length === 0) {
+    return { error: `Could not detect ports. Use --ports to specify`, name, dir: relDir || '.', command };
+  }
+
+  return { name, dir: relDir || '.', command, ports };
+}
+
+function ipcClient(action, payload) {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(SOCKET_PATH)) {
+      reject(new Error('No running devctl instance found for this project.\nStart devctl first, then use "devctl add" from another terminal.'));
+      return;
+    }
+
+    const socket = net.createConnection(SOCKET_PATH, () => {
+      const msg = { action, ...payload };
+      socket.write(JSON.stringify(msg) + '\n');
+    });
+
+    let data = '';
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error('Connection timed out'));
+    }, 5000);
+
+    socket.on('data', (chunk) => {
+      data += chunk.toString();
+      const nlIdx = data.indexOf('\n');
+      if (nlIdx !== -1) {
+        clearTimeout(timeout);
+        try {
+          resolve(JSON.parse(data.slice(0, nlIdx)));
+        } catch {
+          reject(new Error('Invalid response from server'));
+        }
+        socket.end();
+      }
+    });
+
+    socket.on('error', (err) => {
+      clearTimeout(timeout);
+      if (err.code === 'ECONNREFUSED') {
+        reject(new Error('devctl is not running (stale socket). Start devctl first.'));
+      } else {
+        reject(new Error(`Connection error: ${err.message}`));
+      }
+    });
+
+    socket.on('close', () => {
+      clearTimeout(timeout);
+    });
+  });
+}
+
+async function runClientMode(argv) {
+  const args = argv.filter(a => !a.startsWith('--'));
+  const flags = argv.filter(a => a.startsWith('--'));
+  const subcommand = args[0];
+
+  const getFlag = (name) => {
+    const prefix = `--${name}=`;
+    const f = flags.find(f => f.startsWith(prefix));
+    if (f) return f.slice(prefix.length);
+    const idx = flags.indexOf(`--${name}`);
+    if (idx !== -1 && idx + 1 < argv.length) {
+      const next = argv[argv.indexOf(`--${name}`) + 1];
+      if (!next.startsWith('--')) return next;
+    }
+    return null;
+  };
+  const hasFlag = (name) => flags.includes(`--${name}`);
+
+  try {
+    switch (subcommand) {
+      case 'ping': {
+        const res = await ipcClient('ping', {});
+        if (res.ok) {
+          console.log(`devctl is running (PID ${res.pid}) for project: ${res.project}`);
+        } else {
+          console.error(`Error: ${res.error}`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      case 'status': {
+        const res = await ipcClient('status', {});
+        if (!res.ok) {
+          console.error(`Error: ${res.error}`);
+          process.exit(1);
+        }
+        console.log(`devctl (PID ${res.pid}) — ${res.project}`);
+        if (res.apps.length === 0) {
+          console.log('  No apps configured.');
+        } else {
+          for (const app of res.apps) {
+            const icon = app.status === 'running' ? '\x1b[32m●\x1b[0m' :
+                         app.status === 'stopping' ? '\x1b[33m●\x1b[0m' : '\x1b[90m○\x1b[0m';
+            const pidStr = app.pid ? ` (PID ${app.pid})` : '';
+            const portStr = app.ports.length ? ` :${app.ports.join(',')}` : '';
+            console.log(`  ${icon} ${app.name}${pidStr}${portStr} — ${app.status}`);
+          }
+        }
+        break;
+      }
+
+      case 'add': {
+        const targetDir = path.resolve(args[1] || '.');
+        const scan = scanCurrentDir(targetDir);
+
+        if (scan.error && !scan.name) {
+          console.error(`Error: ${scan.error}`);
+          process.exit(1);
+        }
+
+        const entry = {
+          name: getFlag('name') || scan.name,
+          dir: targetDir,
+          command: getFlag('command') || scan.command,
+          ports: scan.ports || [],
+        };
+
+        // --ports override
+        const portsFlag = getFlag('ports');
+        if (portsFlag) {
+          entry.ports = portsFlag.split(',').map(p => parseInt(p.trim(), 10)).filter(p => p > 0 && p < 65536);
+        }
+
+        if (entry.ports.length === 0) {
+          console.error('Error: Could not detect ports. Use --ports <port> to specify.');
+          process.exit(1);
+        }
+
+        if (scan.error && !portsFlag) {
+          // Had scan error but name was found - only port detection failed
+          console.error(`Error: ${scan.error}`);
+          process.exit(1);
+        }
+
+        const autoStart = hasFlag('start');
+        const res = await ipcClient('add-app', { app: entry, cwd: process.cwd(), autoStart });
+
+        if (res.ok) {
+          console.log(`Added "${res.name}" to devctl.`);
+          if (autoStart) console.log(`App "${res.name}" is starting.`);
+        } else {
+          console.error(`Error: ${res.error}`);
+          process.exit(1);
+        }
+        break;
+      }
+
+      default:
+        console.error(`Unknown command: ${subcommand}`);
+        console.error('Usage: devctl add <dir> | devctl status | devctl ping');
+        process.exit(1);
+    }
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
 // ── Terminal Setup / Cleanup ────────────────────────────
 
 function setupTerminal() {
@@ -3044,6 +3436,7 @@ function cleanupTerminal() {
   terminalCleaned = true;
   tuiReady = false;
   if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+  closeIpcServer();
   try { process.stdout.write(CURSOR_SHOW + ALT_SCREEN_OFF); } catch {}
   try { process.stdin.setRawMode(false); } catch {}
 }
@@ -3055,6 +3448,7 @@ async function shutdown(reason) {
   shuttingDown = true;
   cleanupTerminal();
   closeConfigWatcher();
+  closeIpcServer();
   console.log(reason);
   saveSessionState();
   const forceExit = setTimeout(() => process.exit(1), 10000);
@@ -3120,6 +3514,7 @@ function main() {
 
   setupTerminal();
   setupConfigWatcher();
+  setupIpcServer();
   layout = calcLayout();
   tuiReady = true;
 
@@ -3146,4 +3541,11 @@ function main() {
   }
 }
 
-main();
+const positionalArgs = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const CLIENT_COMMANDS = new Set(['add', 'status', 'ping']);
+
+if (positionalArgs.length > 0 && CLIENT_COMMANDS.has(positionalArgs[0])) {
+  runClientMode(process.argv.slice(2));
+} else {
+  main();
+}
