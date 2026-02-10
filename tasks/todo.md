@@ -4,7 +4,7 @@
 
 ### High Priority
 
-- [ ] **Config File Watcher** - Auto-reload `apps.json` when it changes on disk using `fs.watch()`, eliminating need for manual `reload` command
+- [x] **Config File Watcher** - Auto-reload `apps.json` when it changes on disk using `fs.watch()`, eliminating need for manual `reload` command
 
 - [ ] **Environment Variables** - Support per-app environment variables in config:
   ```json
@@ -13,9 +13,9 @@
 
 - [ ] **App Dependencies** - Add `dependsOn: ["app-name"]` to config so apps start in correct order (e.g., database before API server). Topological sort for start order.
 
-- [ ] **Log Timestamps** - Optional toggle (`t` key or config) to prefix log lines with timestamps for debugging timing issues
+- [x] **Log Timestamps** - Optional toggle (`t` key or config) to prefix log lines with timestamps for debugging timing issues
 
-- [ ] **Session Persistence** - Save which apps were running on exit to `.devctl-state.json`; add `--restore` flag to restore previous session
+- [x] **Session Persistence** - Save which apps were running on exit to `.devctl-state.json`; add `--restore` flag to restore previous session
 
 ### Medium Priority
 
