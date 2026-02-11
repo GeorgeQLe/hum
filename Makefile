@@ -1,4 +1,4 @@
-.PHONY: build run test clean
+.PHONY: build run test clean install
 
 build:
 	go build -o devctl .
@@ -11,3 +11,6 @@ test:
 
 clean:
 	rm -f devctl
+
+install:
+	bash install.sh
