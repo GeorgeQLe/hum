@@ -22,6 +22,10 @@ type focusArea int
 const (
 	focusSidebar focusArea = iota
 	focusCommand
+
+	maxCmdHistory  = 100
+	quitTimeout    = 10 * time.Second
+	notifyDuration = 5 * time.Second
 )
 
 // Model is the root Bubble Tea model.
@@ -38,8 +42,9 @@ type Model struct {
 	height      int
 
 	// Layout
-	sidebarWidth int
-	logWidth     int
+	sidebarWidth  int
+	logWidth      int
+	layoutDirty   bool
 
 	// Command line
 	cmdInput   string
@@ -79,6 +84,9 @@ type Model struct {
 
 	// Quitting
 	quitting bool
+
+	// Pre-computed visual lines for current render frame (B1)
+	visibleLines []visualLine
 
 	// Start flags
 	startAll bool
@@ -197,7 +205,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.recalcLayout()
+		m.layoutDirty = true
 		return m, nil
 
 	case tea.KeyMsg:
@@ -275,7 +283,20 @@ func (m Model) View() string {
 		return "Terminal too small. Please resize to at least 40×12."
 	}
 
-	m.recalcLayout()
+	if m.layoutDirty || m.sidebarWidth == 0 {
+		m.recalcLayout()
+		m.layoutDirty = false
+	}
+
+	// Pre-compute wrapped visual lines for the log pane (B1)
+	if m.scanMode == nil {
+		bufName := m.getSelectedBufName()
+		logBuf := m.procManager.GetLogBuffer(bufName)
+		contentWidth := m.logWidth - 1 // -1 for leading space
+		m.visibleLines = computeVisualLines(logBuf, logBuf.ScrollPos, m.logViewHeight(), contentWidth)
+	} else {
+		m.visibleLines = nil
+	}
 
 	var buf strings.Builder
 
@@ -819,8 +840,6 @@ func (m *Model) handleTabCompletion() {
 	// Cycle through matches
 	m.tabIdx = (m.tabIdx + 1) % len(m.tabMatches)
 	match := m.tabMatches[m.tabIdx]
-	cursorInOrig := len(m.tabOrig) - len(m.tabOrig) + m.cmdCursor
-	_ = cursorInOrig
 	before := m.tabOrig[:len(m.tabOrig)-len(m.tabPartial)]
 	m.cmdInput = before + match
 	m.cmdCursor = len(m.cmdInput)
@@ -834,7 +853,7 @@ func (m Model) executeCommandLine() (tea.Model, tea.Cmd) {
 	}
 
 	m.cmdHistory = append(m.cmdHistory, line)
-	if len(m.cmdHistory) > 100 {
+	if len(m.cmdHistory) > maxCmdHistory {
 		m.cmdHistory = m.cmdHistory[1:]
 	}
 	m.historyIdx = -1
@@ -987,12 +1006,8 @@ func (m *Model) handleAutoRestart(args string) {
 			runtimeDisabled := false
 			restartCount := 0
 			if entry != nil {
-				entry.Mu().Lock()
-				runtimeDisabled = entry.AutoRestartDisabled
-				restartCount = entry.RestartCount
-				entry.Mu().Unlock()
+				runtimeDisabled, restartCount = entry.GetAutoRestartState()
 			}
-			effective := configEnabled && !runtimeDisabled
 			var statusText string
 			if configEnabled {
 				if runtimeDisabled {
@@ -1007,7 +1022,6 @@ func (m *Model) handleAutoRestart(args string) {
 			if restartCount > 0 {
 				restartInfo = fmt.Sprintf(" [%d restarts]", restartCount)
 			}
-			_ = effective
 			m.systemLog(fmt.Sprintf("  %s: %s%s", app.Name, statusText, restartInfo))
 		}
 		m.systemLog("")
@@ -1033,13 +1047,11 @@ func (m *Model) handleAutoRestart(args string) {
 	if action == "" {
 		// Toggle
 		if entry != nil {
-			entry.Mu().Lock()
-			entry.AutoRestartDisabled = !entry.AutoRestartDisabled
+			nowDisabled := entry.ToggleAutoRestart()
 			status := "enabled"
-			if entry.AutoRestartDisabled {
+			if nowDisabled {
 				status = "disabled"
 			}
-			entry.Mu().Unlock()
 			m.systemLog(fmt.Sprintf("Auto-restart for %s: %s (runtime)", name, status))
 		} else {
 			configEnabled := app.AutoRestart != nil && *app.AutoRestart
@@ -1054,17 +1066,12 @@ func (m *Model) handleAutoRestart(args string) {
 
 	if action == "on" {
 		if entry != nil {
-			entry.Mu().Lock()
-			entry.AutoRestartDisabled = false
-			entry.RestartCount = 0
-			entry.Mu().Unlock()
+			entry.EnableAutoRestart()
 		}
 		m.systemLog(fmt.Sprintf("Auto-restart for %s: enabled (runtime)", name))
 	} else if action == "off" {
 		if entry != nil {
-			entry.Mu().Lock()
-			entry.AutoRestartDisabled = true
-			entry.Mu().Unlock()
+			entry.DisableAutoRestart()
 		}
 		m.systemLog(fmt.Sprintf("Auto-restart for %s: disabled (runtime)", name))
 	} else {
@@ -1144,13 +1151,6 @@ func (m *Model) maybeAutoRestart(appName string) tea.Cmd {
 		return nil
 	}
 
-	entry.Mu().Lock()
-	defer entry.Mu().Unlock()
-
-	if entry.AutoRestartDisabled {
-		return nil
-	}
-
 	maxRestarts := 5
 	if app.MaxRestarts != nil {
 		maxRestarts = *app.MaxRestarts
@@ -1160,13 +1160,14 @@ func (m *Model) maybeAutoRestart(appName string) tea.Cmd {
 		restartDelay = *app.RestartDelay
 	}
 
-	if entry.RestartCount >= maxRestarts {
-		m.systemLog(fmt.Sprintf("Auto-restart limit reached for %s (%d attempts). Use 'start %s' to restart manually.", appName, maxRestarts, appName))
+	canRestart, count := entry.TryAutoRestart(maxRestarts)
+	if !canRestart {
+		if count >= maxRestarts {
+			m.systemLog(fmt.Sprintf("Auto-restart limit reached for %s (%d attempts). Use 'start %s' to restart manually.", appName, maxRestarts, appName))
+		}
 		return nil
 	}
 
-	entry.RestartCount++
-	count := entry.RestartCount
 	m.systemLog(fmt.Sprintf("Auto-restarting %s in %dms (attempt %d/%d)...", appName, restartDelay, count, maxRestarts))
 
 	delay := time.Duration(restartDelay) * time.Millisecond
@@ -1268,6 +1269,10 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 				if conflictApp != nil {
 					m.procManager.Restart(devctlApp, conflictApp.Command, conflictApp.Dir)
 				}
+				// Verify port is freed before starting (B7)
+				if !process.WaitForPortFree(conflict.port, 2*time.Second) {
+					m.systemLog(fmt.Sprintf("Warning: port %d still in use after restart", conflict.port))
+				}
 				m.procManager.Start(app.Name, app.Command, app.Dir)
 			case "a":
 				altPort := process.SuggestAlternativePort(conflict.port)
@@ -1280,9 +1285,11 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 				}
 			case "s":
 				m.procManager.Start(app.Name, app.Command, app.Dir)
-			default:
+			case "c", "":
 				logBuf := m.procManager.GetLogBuffer(app.Name)
 				logBuf.Append("Start cancelled.", false)
+			default:
+				m.systemLog(fmt.Sprintf("Invalid choice: %q. Use [r]estart/[a]lt/[s]tart/[c]ancel.", answer))
 			}
 		})
 	} else {
@@ -1290,8 +1297,10 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 			switch strings.ToLower(answer) {
 			case "k":
 				process.KillExternalProcess(conflict.owner.PID)
-				// Wait briefly for port to become free
-				process.WaitForPortFree(conflict.port, 2*time.Second)
+				// Verify port is freed after kill (B7)
+				if !process.WaitForPortFree(conflict.port, 2*time.Second) {
+					m.systemLog(fmt.Sprintf("Warning: port %d still in use after killing PID %d", conflict.port, conflict.owner.PID))
+				}
 				m.procManager.Start(app.Name, app.Command, app.Dir)
 			case "a":
 				altPort := process.SuggestAlternativePort(conflict.port)
@@ -1304,9 +1313,11 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 				}
 			case "s":
 				m.procManager.Start(app.Name, app.Command, app.Dir)
-			default:
+			case "c", "":
 				logBuf := m.procManager.GetLogBuffer(app.Name)
 				logBuf.Append("Start cancelled.", false)
+			default:
+				m.systemLog(fmt.Sprintf("Invalid choice: %q. Use [k]ill/[a]lt/[s]tart/[c]ancel.", answer))
 			}
 		})
 	}
@@ -1363,6 +1374,7 @@ func (m *Model) startAddWizard() {
 						return
 					}
 					m.apps = append(m.apps, app)
+					m.layoutDirty = true
 					m.saveConfig()
 					m.systemLog(fmt.Sprintf("Added %s.", name))
 				})
@@ -1408,6 +1420,7 @@ func (m *Model) removeApp(name string) {
 		}
 	}
 	m.apps = newApps
+	m.layoutDirty = true
 	m.saveConfig()
 	// Clean up stale entries from the process manager
 	m.procManager.RemoveEntries(name)
@@ -1520,15 +1533,14 @@ func (m Model) handleQuit() (tea.Model, tea.Cmd) {
 		m.ipcServer.Stop()
 	}
 	// Save session state BEFORE stopping (so we know which apps were running)
+	// Always save, even if empty, to clear stale sessions (B10)
 	var running []string
 	for _, app := range m.apps {
 		if m.procManager.GetStatus(app.Name) == process.StatusRunning {
 			running = append(running, app.Name)
 		}
 	}
-	if len(running) > 0 {
-		state.SaveSession(m.projectRoot, running)
-	}
+	state.SaveSession(m.projectRoot, running)
 	// Now stop all processes with a timeout
 	done := make(chan struct{})
 	go func() {
@@ -1537,7 +1549,7 @@ func (m Model) handleQuit() (tea.Model, tea.Cmd) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(quitTimeout):
 		// Force quit if processes refuse to die
 	}
 	return m, tea.Quit
@@ -1585,13 +1597,43 @@ func (m Model) handleReload() (tea.Model, tea.Cmd) {
 	}
 	if len(removed) > 0 {
 		m.systemLog(fmt.Sprintf("Removed: %s", strings.Join(removed, ", ")))
+		// Offer to stop removed apps that are still running (B4)
+		for _, name := range removed {
+			if m.procManager.GetStatus(name) == process.StatusRunning {
+				n := name
+				m.askQuestion(fmt.Sprintf("%s was removed from config but is still running. Stop it? (y/N): ", n), func(answer string) {
+					if strings.ToLower(answer) == "y" {
+						m.procManager.Stop(n)
+						m.systemLog(fmt.Sprintf("Stopped %s.", n))
+					}
+				})
+			}
+		}
 	}
 	if len(changed) > 0 {
 		m.systemLog(fmt.Sprintf("Changed: %s", strings.Join(changed, ", ")))
-		// Offer restart for running apps that changed
+		// Show what changed for each app (B5)
 		for _, name := range changed {
+			oldApp := oldMap[name]
+			newApp := newMap[name]
+			if oldApp.Dir != newApp.Dir {
+				m.systemLog(fmt.Sprintf("  %s: dir: %s -> %s", name, oldApp.Dir, newApp.Dir))
+			}
+			if oldApp.Command != newApp.Command {
+				m.systemLog(fmt.Sprintf("  %s: command: %s -> %s", name, oldApp.Command, newApp.Command))
+			}
+			if fmt.Sprint(oldApp.Ports) != fmt.Sprint(newApp.Ports) {
+				m.systemLog(fmt.Sprintf("  %s: ports: %v -> %v", name, oldApp.Ports, newApp.Ports))
+			}
 			if m.procManager.GetStatus(name) == process.StatusRunning {
-				m.systemLog(fmt.Sprintf("  %s is running with old config — use 'restart %s' to apply changes", name, name))
+				n := name
+				newApp := newMap[n]
+				m.askQuestion(fmt.Sprintf("%s is running with old config. Restart with new config? (y/N): ", n), func(answer string) {
+					if strings.ToLower(answer) == "y" {
+						m.procManager.Restart(n, newApp.Command, newApp.Dir)
+						m.systemLog(fmt.Sprintf("Restarted %s with new config.", n))
+					}
+				})
 			}
 		}
 	}
@@ -1600,6 +1642,7 @@ func (m Model) handleReload() (tea.Model, tea.Cmd) {
 	}
 
 	m.apps = newApps
+	m.layoutDirty = true
 	if m.selectedIdx > len(m.apps) {
 		m.selectedIdx = len(m.apps)
 	}
@@ -1617,8 +1660,13 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 		switch action {
 		case "start":
 			if target == "all" {
-				// Pre-check ports for all apps, start conflict-free ones, report conflicts
-				var conflictApps []string
+				// Pre-check ports for all apps, start conflict-free ones in parallel
+				type conflictInfo struct {
+					appName string
+					port    int
+					owner   *process.PortOwnerInfo
+				}
+				var conflicts []conflictInfo
 				for _, app := range m.apps {
 					status := m.procManager.GetStatus(app.Name)
 					if status == process.StatusRunning {
@@ -1628,24 +1676,43 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 					for _, p := range app.Ports {
 						if !process.IsPortFree(p) {
 							hasConflict = true
-							logBuf := m.procManager.GetLogBuffer(app.Name)
 							owner := process.GetPortOwnerInfo(p)
-							if owner != nil {
-								logBuf.Append(fmt.Sprintf("Port %d in use by %s (PID %d) — skipped", p, owner.Command, owner.PID), false)
-							} else {
-								logBuf.Append(fmt.Sprintf("Port %d in use — skipped", p), false)
-							}
+							conflicts = append(conflicts, conflictInfo{
+								appName: app.Name,
+								port:    p,
+								owner:   owner,
+							})
 							break
 						}
 					}
-					if hasConflict {
-						conflictApps = append(conflictApps, app.Name)
-						continue
+					if !hasConflict {
+						m.procManager.Start(app.Name, app.Command, app.Dir)
 					}
-					m.procManager.Start(app.Name, app.Command, app.Dir)
 				}
-				if len(conflictApps) > 0 {
-					m.systemLog(fmt.Sprintf("Port conflicts: %s (use 'start <name>' to resolve individually)", strings.Join(conflictApps, ", ")))
+				// Return conflict messages for individual resolution (B2)
+				if len(conflicts) > 0 {
+					names := make([]string, len(conflicts))
+					for i, c := range conflicts {
+						names[i] = c.appName
+						logBuf := m.procManager.GetLogBuffer(c.appName)
+						if c.owner != nil {
+							logBuf.Append(fmt.Sprintf("Port %d in use by %s (PID %d)", c.port, c.owner.Command, c.owner.PID), false)
+						} else {
+							logBuf.Append(fmt.Sprintf("Port %d in use", c.port), false)
+						}
+					}
+					m.systemLog(fmt.Sprintf("Port conflicts: %s — use 'start <name>' to resolve individually", strings.Join(names, ", ")))
+					// Return port conflict for first conflicting app to trigger interactive resolution
+					if len(conflicts) > 0 {
+						c := conflicts[0]
+						return portConflictMsg{
+							appName: c.appName,
+							conflicts: []struct {
+								port  int
+								owner *process.PortOwnerInfo
+							}{{c.port, c.owner}},
+						}
+					}
 				}
 			} else {
 				app := m.findApp(target)
@@ -1731,6 +1798,25 @@ func (m Model) restoreSessionCmd() tea.Cmd {
 		var missing []string
 		for _, name := range saved {
 			if app, ok := appMap[name]; ok {
+				// Check ports before starting, same as normal start (B3)
+				hasConflict := false
+				for _, p := range app.Ports {
+					if !process.IsPortFree(p) {
+						hasConflict = true
+						owner := process.GetPortOwnerInfo(p)
+						logBuf := m.procManager.GetLogBuffer(app.Name)
+						if owner != nil {
+							logBuf.Append(fmt.Sprintf("Port %d in use by %s (PID %d) — skipped during restore", p, owner.Command, owner.PID), false)
+						} else {
+							logBuf.Append(fmt.Sprintf("Port %d in use — skipped during restore", p), false)
+						}
+						break
+					}
+				}
+				if hasConflict {
+					m.systemLog(fmt.Sprintf("Skipped %s due to port conflict (use 'start %s' to resolve)", name, name))
+					continue
+				}
 				m.procManager.Start(app.Name, app.Command, app.Dir)
 				restored++
 			} else {
@@ -1761,10 +1847,10 @@ func (m *Model) processEvent(evt process.ProcessEvent) tea.Cmd {
 
 	if evt.Type == process.EventErrorDetected {
 		m.notification = "Error detected! [e] copy"
-		m.notificationEnd = time.Now().Add(5 * time.Second)
+		m.notificationEnd = time.Now().Add(notifyDuration)
 		return tea.Batch(
 			m.listenForProcessEvents(),
-			tea.Tick(5*time.Second, func(time.Time) tea.Msg { return clearNotificationMsg{} }),
+			tea.Tick(notifyDuration, func(time.Time) tea.Msg { return clearNotificationMsg{} }),
 		)
 	}
 
@@ -1882,10 +1968,14 @@ func (m *Model) handleIPCAddApp(msg ipc.IPCRequestMsg) {
 	}
 	entry.Dir = relDir
 
-	// Check for duplicates
+	// Check for duplicates by name and directory (B6)
 	for _, a := range m.apps {
 		if a.Name == entry.Name {
 			msg.ResponseCh <- ipc.Response{OK: false, Error: fmt.Sprintf("App %q already exists", entry.Name)}
+			return
+		}
+		if a.Dir == entry.Dir {
+			msg.ResponseCh <- ipc.Response{OK: false, Error: fmt.Sprintf("Directory %q is already registered as %q", entry.Dir, a.Name)}
 			return
 		}
 	}
@@ -1902,6 +1992,7 @@ func (m *Model) handleIPCAddApp(msg ipc.IPCRequestMsg) {
 	}
 
 	m.apps = append(m.apps, app)
+	m.layoutDirty = true
 	m.saveConfig()
 	m.systemLog(fmt.Sprintf("App \"%s\" added via IPC (dir: %s)", entry.Name, entry.Dir))
 
@@ -1929,7 +2020,7 @@ func (m Model) listenForConfigChange() tea.Cmd {
 }
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }

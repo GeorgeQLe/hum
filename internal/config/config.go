@@ -52,13 +52,18 @@ func ConfigPath(projectRoot string) string {
 }
 
 // Load reads and parses apps.json from the project root.
-// Returns an empty slice if the file doesn't exist or is invalid.
+// Creates an empty apps.json if the file doesn't exist.
+// Returns an error if the file contains invalid JSON.
 func Load(projectRoot string) ([]App, error) {
 	configPath := ConfigPath(projectRoot)
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// Auto-create empty config file (B9)
+			if writeErr := os.WriteFile(configPath, []byte("[]\n"), 0644); writeErr != nil {
+				return nil, fmt.Errorf("could not create %s: %w", configPath, writeErr)
+			}
 			return []App{}, nil
 		}
 		return nil, err
@@ -66,7 +71,7 @@ func Load(projectRoot string) ([]App, error) {
 
 	var apps []App
 	if err := json.Unmarshal(data, &apps); err != nil {
-		return []App{}, nil
+		return nil, fmt.Errorf("invalid JSON in %s: %w", configPath, err)
 	}
 
 	valid := make([]App, 0, len(apps))

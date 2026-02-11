@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -126,12 +127,12 @@ func TestLoadInvalidJSON(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "apps.json")
 	os.WriteFile(configPath, []byte("not json"), 0644)
 
-	apps, err := Load(tmpDir)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+	_, err := Load(tmpDir)
+	if err == nil {
+		t.Fatal("Load() expected error for invalid JSON, got nil")
 	}
-	if len(apps) != 0 {
-		t.Errorf("Load() returned %d apps for invalid JSON, want 0", len(apps))
+	if !strings.Contains(err.Error(), "invalid JSON") {
+		t.Errorf("expected 'invalid JSON' in error, got: %v", err)
 	}
 }
 

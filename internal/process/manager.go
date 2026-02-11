@@ -18,6 +18,9 @@ const (
 	StatusRunning  Status = "running"
 	StatusStopping Status = "stopping"
 	StatusCrashed  Status = "crashed"
+
+	stopTimeout     = 5 * time.Second
+	eventChannelSize = 256
 )
 
 // Entry tracks a managed process and its metadata.
@@ -33,9 +36,49 @@ type Entry struct {
 	doneCh chan struct{} // closed when process exits
 }
 
-// Mu returns the entry's mutex for external locking.
-func (e *Entry) Mu() *sync.Mutex {
-	return &e.mu
+// GetAutoRestartState returns the auto-restart disabled flag and restart count.
+func (e *Entry) GetAutoRestartState() (disabled bool, restartCount int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.AutoRestartDisabled, e.RestartCount
+}
+
+// ToggleAutoRestart toggles the auto-restart disabled flag and returns the new state.
+func (e *Entry) ToggleAutoRestart() (nowDisabled bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.AutoRestartDisabled = !e.AutoRestartDisabled
+	return e.AutoRestartDisabled
+}
+
+// EnableAutoRestart enables auto-restart and resets the restart count.
+func (e *Entry) EnableAutoRestart() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.AutoRestartDisabled = false
+	e.RestartCount = 0
+}
+
+// DisableAutoRestart disables auto-restart.
+func (e *Entry) DisableAutoRestart() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.AutoRestartDisabled = true
+}
+
+// TryAutoRestart attempts to increment the restart counter.
+// Returns whether a restart is allowed and the current count.
+func (e *Entry) TryAutoRestart(maxRestarts int) (canRestart bool, count int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.AutoRestartDisabled {
+		return false, e.RestartCount
+	}
+	if e.RestartCount >= maxRestarts {
+		return false, e.RestartCount
+	}
+	e.RestartCount++
+	return true, e.RestartCount
 }
 
 // ProcessEvent is sent when a process changes state.
@@ -75,7 +118,7 @@ func NewManager(projectRoot string) *Manager {
 		Entries:      make(map[string]*Entry),
 		LogBuffers:   make(map[string]*LogBuffer),
 		ErrorBuffers: make(map[string]*ErrorBuffer),
-		eventCh:      make(chan ProcessEvent, 256),
+		eventCh:      make(chan ProcessEvent, eventChannelSize),
 	}
 }
 
@@ -143,6 +186,8 @@ func (m *Manager) Start(name, command, dir string) error {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = fullDir
 	cmd.Env = append(os.Environ(), "TURBO_UI=stream")
+	// Explicitly ensure child reads from /dev/null, not the terminal (A3)
+	cmd.Stdin = nil
 	// Set process group so we can kill the entire group
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -246,11 +291,15 @@ func (m *Manager) Stop(name string) error {
 	entry, ok := m.Entries[name]
 	m.mu.Unlock()
 
-	if !ok || entry.Status != StatusRunning {
+	if !ok {
 		return nil
 	}
 
 	entry.mu.Lock()
+	if entry.Status != StatusRunning {
+		entry.mu.Unlock()
+		return nil
+	}
 	entry.Status = StatusStopping
 	cmd := entry.Cmd
 	entry.mu.Unlock()
@@ -268,7 +317,7 @@ func (m *Manager) Stop(name string) error {
 	select {
 	case <-entry.doneCh:
 		return nil
-	case <-time.After(5 * time.Second):
+	case <-time.After(stopTimeout):
 		// Force kill
 		buf := m.GetLogBuffer(name)
 		buf.Append(fmt.Sprintf("[%s] SIGTERM timeout, sending SIGKILL...", name), false)
@@ -393,11 +442,15 @@ func (m *Manager) FindDevctlOwner(pid int) string {
 	return ""
 }
 
-// KillExternalProcess sends SIGTERM then SIGKILL to an external process.
+// KillExternalProcess sends SIGTERM then SIGKILL to an external process
+// and its process group to clean up child processes.
 func KillExternalProcess(pid int) error {
-	// Send SIGTERM
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		return err
+	// Try to kill the entire process group first (D8)
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+		// Not a group leader or permission denied — fall back to single PID
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			return err
+		}
 	}
 
 	// Wait up to 2.5s for exit, then SIGKILL
@@ -408,8 +461,10 @@ func KillExternalProcess(pid int) error {
 		}
 	}
 
-	// Force kill
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	// Force kill process group, then single PID as fallback
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
 	time.Sleep(500 * time.Millisecond)
 	return nil
 }

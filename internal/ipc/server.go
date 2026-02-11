@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 )
 
 var socketDir = filepath.Join(os.TempDir(), "devctl-sockets")
+
+const ipcRequestBufferSize = 16
 
 // Request represents an IPC request from a client.
 type Request struct {
@@ -57,7 +60,7 @@ func NewServer(projectRoot string) (*Server, error) {
 	socketPath := SocketPath(projectRoot)
 
 	// Ensure socket directory exists
-	if err := os.MkdirAll(socketDir, 0755); err != nil {
+	if err := os.MkdirAll(socketDir, 0700); err != nil {
 		return nil, err
 	}
 
@@ -79,12 +82,14 @@ func NewServer(projectRoot string) (*Server, error) {
 	}
 
 	// Set permissions
-	os.Chmod(socketPath, 0600)
+	if err := os.Chmod(socketPath, 0600); err != nil {
+		log.Printf("warning: could not set socket permissions: %v", err)
+	}
 
 	return &Server{
 		socketPath: socketPath,
 		listener:   listener,
-		requestCh:  make(chan IPCRequestMsg, 16),
+		requestCh:  make(chan IPCRequestMsg, ipcRequestBufferSize),
 		stopCh:     make(chan struct{}),
 	}, nil
 }

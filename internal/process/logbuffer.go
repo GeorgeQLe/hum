@@ -61,11 +61,25 @@ func (b *LogBuffer) Append(text string, isStderr bool) []int {
 	// Trim to max
 	if len(b.Lines) > MaxLogLines {
 		excess := len(b.Lines) - MaxLogLines
-		b.Lines = b.Lines[excess:]
+		// Copy to new slice to release old backing array memory (D10)
+		newLines := make([]LogLine, MaxLogLines)
+		copy(newLines, b.Lines[excess:])
+		b.Lines = newLines
 		b.ScrollPos -= excess
 		if b.ScrollPos < 0 {
 			b.ScrollPos = 0
 		}
+		// Adjust returned indices to account for trimmed lines (A1)
+		for i := range indices {
+			indices[i] -= excess
+		}
+		valid := indices[:0]
+		for _, idx := range indices {
+			if idx >= 0 {
+				valid = append(valid, idx)
+			}
+		}
+		indices = valid
 	}
 
 	return indices
@@ -191,6 +205,8 @@ var (
 	oscRe = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
 	// Non-CSI escapes
 	nonCsiRe = regexp.MustCompile(`\x1b[^\[]\S?`)
+	// ANSI color/style escape sequences
+	ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 )
 
 func sanitizeLine(s string) string {
@@ -203,5 +219,5 @@ func sanitizeLine(s string) string {
 
 // StripAnsi removes all ANSI escape codes from a string.
 func StripAnsi(s string) string {
-	return regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`).ReplaceAllString(s, "")
+	return ansiRe.ReplaceAllString(s, "")
 }

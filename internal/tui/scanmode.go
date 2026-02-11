@@ -166,6 +166,7 @@ func (m *Model) exitScanMode(confirmed bool) {
 
 		m.scanMode = nil
 		if len(addedNames) > 0 {
+			m.layoutDirty = true
 			m.saveConfig()
 			m.systemLog(fmt.Sprintf("Added %d app(s): %s", len(addedNames), strings.Join(addedNames, ", ")))
 		} else {

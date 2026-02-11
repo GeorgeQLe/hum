@@ -27,10 +27,10 @@ var commandsWithAll = map[string]bool{
 // complete returns tab completion candidates for the current input.
 func (m *Model) complete(input string) (matches []string, partial string) {
 	parts := strings.Fields(input)
-	trimmed := strings.TrimLeft(input, " ")
+	hasTrailingSpace := len(input) > 0 && input[len(input)-1] == ' '
 
-	// Command completion
-	if len(parts) <= 1 {
+	// Command completion (no parts, or one part without trailing space)
+	if len(parts) == 0 || (len(parts) == 1 && !hasTrailingSpace) {
 		p := ""
 		if len(parts) == 1 {
 			p = parts[0]
@@ -43,11 +43,10 @@ func (m *Model) complete(input string) (matches []string, partial string) {
 		return matches, p
 	}
 
-	// Argument completion
+	// Argument completion (D4: trailing space triggers argument completion)
 	cmd := parts[0]
-	_ = trimmed
 	p := ""
-	if len(parts) > 1 {
+	if !hasTrailingSpace {
 		p = parts[len(parts)-1]
 	}
 

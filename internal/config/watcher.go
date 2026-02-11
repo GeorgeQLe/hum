@@ -14,6 +14,7 @@ type Watcher struct {
 	ignoreNext bool
 	mu         sync.Mutex
 	stopCh     chan struct{}
+	stopOnce   sync.Once
 }
 
 // NewWatcher creates a new config file watcher.
@@ -102,8 +103,10 @@ func (w *Watcher) Start() {
 	}()
 }
 
-// Stop stops the watcher.
+// Stop stops the watcher. Safe to call multiple times.
 func (w *Watcher) Stop() {
-	close(w.stopCh)
-	w.watcher.Close()
+	w.stopOnce.Do(func() {
+		close(w.stopCh)
+		w.watcher.Close()
+	})
 }

@@ -8,6 +8,27 @@ import (
 	"strings"
 )
 
+// Pre-compiled regexes for IsServerDevScript and DetectPorts (C1)
+var (
+	excludeTscWatch  = regexp.MustCompile(`\btsc\b.*--watch`)
+	excludeTsupWatch = regexp.MustCompile(`\btsup\b.*--watch`)
+
+	serverNext    = regexp.MustCompile(`\bnext\b`)
+	serverVite    = regexp.MustCompile(`\bvite\b`)
+	serverWrangler = regexp.MustCompile(`\bwrangler\b`)
+	serverExpo    = regexp.MustCompile(`\bexpo\b`)
+	serverNodemon = regexp.MustCompile(`\bnodemon\b`)
+	serverTsx     = regexp.MustCompile(`\btsx\s+watch\b`)
+	serverPort    = regexp.MustCompile(`\bPORT=`)
+	serverPortFlag = regexp.MustCompile(`--port\b`)
+	serverPFlag   = regexp.MustCompile(`-p\s+\d+`)
+
+	portEnvRe     = regexp.MustCompile(`PORT=(\d+)`)
+	portFlagRe    = regexp.MustCompile(`(?:-p\s+|--port\s+)(\d+)`)
+	portConfigRe  = regexp.MustCompile(`port\s*:\s*(\d+)`)
+	portTomlRe    = regexp.MustCompile(`port\s*=\s*(\d+)`)
+)
+
 // ScanSkipDirs are directories to skip during scanning.
 var ScanSkipDirs = map[string]bool{
 	"node_modules": true,
@@ -188,26 +209,13 @@ func isMonorepoRoot(fullPath string) bool {
 
 // IsServerDevScript checks if a dev script is for a server.
 func IsServerDevScript(devScript string) bool {
-	excludePatterns := []*regexp.Regexp{
-		regexp.MustCompile(`\btsc\b.*--watch`),
-		regexp.MustCompile(`\btsup\b.*--watch`),
-	}
-	for _, re := range excludePatterns {
-		if re.MatchString(devScript) {
-			return false
-		}
+	if excludeTscWatch.MatchString(devScript) || excludeTsupWatch.MatchString(devScript) {
+		return false
 	}
 
 	serverPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`\bnext\b`),
-		regexp.MustCompile(`\bvite\b`),
-		regexp.MustCompile(`\bwrangler\b`),
-		regexp.MustCompile(`\bexpo\b`),
-		regexp.MustCompile(`\bnodemon\b`),
-		regexp.MustCompile(`\btsx\s+watch\b`),
-		regexp.MustCompile(`\bPORT=`),
-		regexp.MustCompile(`--port\b`),
-		regexp.MustCompile(`-p\s+\d+`),
+		serverNext, serverVite, serverWrangler, serverExpo,
+		serverNodemon, serverTsx, serverPort, serverPortFlag, serverPFlag,
 	}
 	for _, re := range serverPatterns {
 		if re.MatchString(devScript) {
@@ -220,12 +228,12 @@ func IsServerDevScript(devScript string) bool {
 // DetectPorts detects port numbers from a dev script and config files.
 func DetectPorts(devScript, fullPath string) []int {
 	// 1. PORT=(\d+) in dev script
-	if m := regexp.MustCompile(`PORT=(\d+)`).FindStringSubmatch(devScript); len(m) > 1 {
+	if m := portEnvRe.FindStringSubmatch(devScript); len(m) > 1 {
 		return parsePort(m[1])
 	}
 
 	// 2. -p or --port in dev script
-	if m := regexp.MustCompile(`(?:-p\s+|--port\s+)(\d+)`).FindStringSubmatch(devScript); len(m) > 1 {
+	if m := portFlagRe.FindStringSubmatch(devScript); len(m) > 1 {
 		return parsePort(m[1])
 	}
 
@@ -233,7 +241,7 @@ func DetectPorts(devScript, fullPath string) []int {
 	for _, ext := range []string{"ts", "js", "mjs"} {
 		vitePath := filepath.Join(fullPath, "vite.config."+ext)
 		if data, err := os.ReadFile(vitePath); err == nil {
-			if m := regexp.MustCompile(`port\s*:\s*(\d+)`).FindStringSubmatch(string(data)); len(m) > 1 {
+			if m := portConfigRe.FindStringSubmatch(string(data)); len(m) > 1 {
 				return parsePort(m[1])
 			}
 		}
@@ -242,22 +250,22 @@ func DetectPorts(devScript, fullPath string) []int {
 	// 4. port in wrangler.toml
 	wranglerPath := filepath.Join(fullPath, "wrangler.toml")
 	if data, err := os.ReadFile(wranglerPath); err == nil {
-		if m := regexp.MustCompile(`port\s*=\s*(\d+)`).FindStringSubmatch(string(data)); len(m) > 1 {
+		if m := portTomlRe.FindStringSubmatch(string(data)); len(m) > 1 {
 			return parsePort(m[1])
 		}
 	}
 
 	// 5. Framework defaults
-	if regexp.MustCompile(`\bnext\b`).MatchString(devScript) {
+	if serverNext.MatchString(devScript) {
 		return []int{3000}
 	}
-	if regexp.MustCompile(`\bvite\b`).MatchString(devScript) {
+	if serverVite.MatchString(devScript) {
 		return []int{5173}
 	}
-	if regexp.MustCompile(`\bwrangler\b`).MatchString(devScript) {
+	if serverWrangler.MatchString(devScript) {
 		return []int{8787}
 	}
-	if regexp.MustCompile(`\bexpo\b`).MatchString(devScript) {
+	if serverExpo.MatchString(devScript) {
 		return []int{8081}
 	}
 
