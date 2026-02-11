@@ -91,10 +91,13 @@ Commands accept `@group` targets (e.g., `start @frontend`, `stop @backend`).
 
 ### Global
 
-| Key          | Action              |
-| ------------ | ------------------- |
-| `Ctrl+C`     | Quit devctl         |
-| `PgUp/PgDn`  | Scroll log output   |
+| Key              | Action                        |
+| ---------------- | ----------------------------- |
+| `Ctrl+C`         | Quit devctl                   |
+| `Ctrl+B`         | Toggle sidebar visibility     |
+| `PgUp/PgDn`      | Scroll log output (page)     |
+| `Ctrl+Up/Down`   | Scroll log output (line)     |
+| Mouse wheel      | Scroll log output (3 lines)  |
 
 ### Sidebar (when focused)
 

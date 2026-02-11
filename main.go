@@ -111,6 +111,7 @@ func runTUI(startAll, restore bool) error {
 	p := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
 	)
 
 	// Handle SIGTERM/SIGHUP — forward to Bubble Tea as an interrupt

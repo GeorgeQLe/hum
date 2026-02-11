@@ -46,6 +46,7 @@ type Model struct {
 	sidebarWidth  int
 	logWidth      int
 	layoutDirty   bool
+	sidebarHidden bool
 
 	// Command line
 	cmdInput   string
@@ -233,6 +234,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layoutDirty = true
 		return m, nil
 
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.scrollLog(-3)
+		case tea.MouseButtonWheelDown:
+			m.scrollLog(3)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.quitting {
 			return m, nil
@@ -357,22 +367,31 @@ func (m Model) View() string {
 	// Main content rows
 	mainHeight := m.mainHeight()
 	for r := 0; r < mainHeight; r++ {
-		var sb, lg string
-		if m.topMode != nil {
-			sb = renderTopLeftRow(&m, r, m.sidebarWidth)
-			lg = renderTopRightRow(&m, r, m.logWidth)
-		} else if m.scanMode != nil {
-			sb = renderScanCandidateRow(&m, r, m.sidebarWidth)
-			lg = renderScanReadmeRow(&m, r, m.logWidth)
+		if m.sidebarHidden {
+			lg := renderLogRow(&m, r, m.logWidth)
+			buf.WriteString(boxV + lg + boxV + "\n")
 		} else {
-			sb = renderSidebar(&m, r, m.sidebarWidth)
-			lg = renderLogRow(&m, r, m.logWidth)
+			var sb, lg string
+			if m.topMode != nil {
+				sb = renderTopLeftRow(&m, r, m.sidebarWidth)
+				lg = renderTopRightRow(&m, r, m.logWidth)
+			} else if m.scanMode != nil {
+				sb = renderScanCandidateRow(&m, r, m.sidebarWidth)
+				lg = renderScanReadmeRow(&m, r, m.logWidth)
+			} else {
+				sb = renderSidebar(&m, r, m.sidebarWidth)
+				lg = renderLogRow(&m, r, m.logWidth)
+			}
+			buf.WriteString(boxV + sb + boxV + lg + boxV + "\n")
 		}
-		buf.WriteString(boxV + sb + boxV + lg + boxV + "\n")
 	}
 
 	// Divider row
-	buf.WriteString(boxML + strings.Repeat(boxH, m.sidebarWidth) + boxMB + strings.Repeat(boxH, m.logWidth) + boxMR + "\n")
+	if m.sidebarHidden {
+		buf.WriteString(boxML + strings.Repeat(boxH, m.logWidth) + boxMR + "\n")
+	} else {
+		buf.WriteString(boxML + strings.Repeat(boxH, m.sidebarWidth) + boxMB + strings.Repeat(boxH, m.logWidth) + boxMR + "\n")
+	}
 
 	// Command line row
 	cmdContent := m.renderCmdContent(m.width - 2)
@@ -393,6 +412,12 @@ func (m Model) View() string {
 
 func (m *Model) recalcLayout() {
 	if m.width < 40 || m.height < 12 {
+		return
+	}
+
+	if m.sidebarHidden {
+		m.sidebarWidth = 0
+		m.logWidth = m.width - 2
 		return
 	}
 
@@ -536,13 +561,13 @@ func (m *Model) getHints() string {
 	}
 
 	if m.focusArea == focusSidebar {
-		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | PgUp/Dn: scroll | ^C: quit"
+		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | ^↑↓/wheel: scroll | ^B: sidebar | ^C: quit"
 		if hasErrors {
 			hint = "e: copy error | E: copy all | " + hint
 		}
 		return hint
 	}
-	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | up/down: history | PgUp/Dn: scroll | ^C: quit"
+	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | up/down: history | ^↑↓/wheel: scroll | ^B: sidebar | ^C: quit"
 	if hasErrors {
 		hint = "e: copy error | E: copy all | " + hint
 	}
@@ -576,6 +601,13 @@ func (m Model) handleKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSearchKeypress(msg)
 	}
 
+	// Ctrl+B: toggle sidebar (global)
+	if isCtrl(msg, "b") {
+		m.sidebarHidden = !m.sidebarHidden
+		m.layoutDirty = true
+		return m, nil
+	}
+
 	// PageUp/PageDown in any mode
 	if isKey(msg, "pgup") {
 		m.scrollLog(-(m.logViewHeight() - 1))
@@ -583,6 +615,16 @@ func (m Model) handleKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if isKey(msg, "pgdown") {
 		m.scrollLog(m.logViewHeight() - 1)
+		return m, nil
+	}
+
+	// Ctrl+Up/Down: scroll by one line
+	if isKey(msg, "ctrl+up") {
+		m.scrollLog(-1)
+		return m, nil
+	}
+	if isKey(msg, "ctrl+down") {
+		m.scrollLog(1)
 		return m, nil
 	}
 
@@ -1401,6 +1443,7 @@ func (m *Model) showHelp() {
 	m.systemLog("  devctl ping                Check if devctl is running")
 	m.systemLog("")
 	m.systemLog("Tab: toggle sidebar/command  up/down/j/k: navigate  PgUp/PgDn: scroll")
+	m.systemLog("Ctrl+Up/Down: scroll line  Mouse wheel: scroll  Ctrl+B: toggle sidebar")
 	m.systemLog("/: search  t: timestamps  e/E: copy errors  s/S/r: start/stop/restart  ^C: quit")
 }
 
