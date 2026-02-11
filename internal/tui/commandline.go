@@ -9,7 +9,7 @@ var commandNames = []string{
 	"start", "stop", "restart", "status",
 	"ports", "scan", "add", "remove", "reload",
 	"autorestart", "clear-errors", "export",
-	"pin", "unpin", "run",
+	"pin", "unpin", "run", "top",
 	"list", "help", "quit",
 }
 

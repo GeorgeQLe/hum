@@ -168,21 +168,29 @@ func renderSidebarAppEntry(m *Model, selectIdx int, name string, status process.
 		}
 	}
 
-	// Truncate name if needed (width - 3 prefix - 2 dot+space - error indicator - health)
-	maxNameLen := width - 5 - errorSuffixLen - healthSuffixLen
+	// Resource threshold indicator
+	resourceSuffix := ""
+	resourceSuffixLen := 0
+	if m.resourceMonitor != nil && m.resourceMonitor.IsExceeded(name) {
+		resourceSuffix = styleStatusCrashed.Render("▲")
+		resourceSuffixLen = 1
+	}
+
+	// Truncate name if needed (width - 3 prefix - 2 dot+space - error indicator - health - resource)
+	maxNameLen := width - 5 - errorSuffixLen - healthSuffixLen - resourceSuffixLen
 	displayName := name
 	if len(displayName) > maxNameLen && maxNameLen > 1 {
 		displayName = displayName[:maxNameLen-1] + "…"
 	}
 
-	padLen := width - 3 - len(displayName) - 2 - errorSuffixLen - healthSuffixLen
+	padLen := width - 3 - len(displayName) - 2 - errorSuffixLen - healthSuffixLen - resourceSuffixLen
 	if padLen < 0 {
 		padLen = 0
 	}
 	padding := strings.Repeat(" ", padLen)
 
 	dot := dotStyle(dotChar)
-	suffixes := healthSuffix + errorSuffix + dot
+	suffixes := resourceSuffix + healthSuffix + errorSuffix + dot
 
 	if isSelected && m.focusArea == focusSidebar {
 		return styleInverse.Render(fmt.Sprintf("%s%s%s ", prefix, displayName, padding)) + suffixes

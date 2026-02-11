@@ -83,6 +83,12 @@ type Model struct {
 	// Health checker
 	healthChecker *health.Checker
 
+	// Resource monitor
+	resourceMonitor *process.ResourceMonitor
+
+	// Top mode
+	topMode *TopMode
+
 	// Config watcher
 	configWatcher *config.Watcher
 
@@ -132,6 +138,9 @@ type configChangedMsg struct{}
 // ipcRequestMsg wraps an IPC request for the Bubble Tea message loop.
 type ipcRequestMsg ipc.IPCRequestMsg
 
+// resourceAlertMsg wraps a resource threshold alert for the Bubble Tea message loop.
+type resourceAlertMsg process.ThresholdAlert
+
 // portConflictMsg signals port conflicts during start.
 type portConflictMsg struct {
 	appName   string
@@ -167,6 +176,9 @@ func New(projectRoot string, apps []config.App, startAll, restore bool) Model {
 	// Create health checker
 	m.healthChecker = health.NewChecker()
 
+	// Create resource monitor
+	m.resourceMonitor = process.NewResourceMonitor(pm.PID)
+
 	// Create config watcher (must be on the model before Init is called)
 	configPath := config.ConfigPath(projectRoot)
 	if w, err := config.NewWatcher(configPath); err == nil {
@@ -199,6 +211,9 @@ func (m Model) Init() tea.Cmd {
 		m.ipcServer.Start()
 		cmds = append(cmds, m.listenForIPCRequests())
 	}
+
+	// Start resource alert listener
+	cmds = append(cmds, m.listenForResourceAlerts())
 
 	if m.startAll {
 		cmds = append(cmds, m.startAllCmd())
@@ -272,6 +287,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleIPCRequest(ipc.IPCRequestMsg(msg))
 		return m, m.listenForIPCRequests()
 
+	case resourceAlertMsg:
+		alert := process.ThresholdAlert(msg)
+		var alertText string
+		if alert.Type == process.AlertCPU {
+			alertText = fmt.Sprintf("CPU alert: %s at %.1f%% (limit: %.0f%%)", alert.AppName, alert.Value, alert.Threshold)
+		} else {
+			alertText = fmt.Sprintf("Memory alert: %s at %.0fMB (limit: %.0fMB)", alert.AppName, alert.Value, alert.Threshold)
+		}
+		m.systemLog(alertText)
+		m.notification = alertText
+		m.notificationEnd = time.Now().Add(notifyDuration)
+		// Send desktop notification if enabled for this app
+		if app := m.findApp(alert.AppName); app != nil && app.Notifications != nil && *app.Notifications {
+			go process.SendNotification("devctl", alertText)
+		}
+		return m, tea.Batch(
+			m.listenForResourceAlerts(),
+			tea.Tick(notifyDuration, func(time.Time) tea.Msg { return clearNotificationMsg{} }),
+		)
+
 	case commandDoneMsg:
 		m.processing = false
 		return m, nil
@@ -299,7 +334,7 @@ func (m Model) View() string {
 	}
 
 	// Pre-compute wrapped visual lines for the log pane (B1)
-	if m.scanMode == nil {
+	if m.scanMode == nil && m.topMode == nil {
 		bufName := m.getSelectedBufName()
 		logBuf := m.procManager.GetLogBuffer(bufName)
 		contentWidth := m.logWidth - 1 // -1 for leading space
@@ -323,7 +358,10 @@ func (m Model) View() string {
 	mainHeight := m.mainHeight()
 	for r := 0; r < mainHeight; r++ {
 		var sb, lg string
-		if m.scanMode != nil {
+		if m.topMode != nil {
+			sb = renderTopLeftRow(&m, r, m.sidebarWidth)
+			lg = renderTopRightRow(&m, r, m.logWidth)
+		} else if m.scanMode != nil {
 			sb = renderScanCandidateRow(&m, r, m.sidebarWidth)
 			lg = renderScanReadmeRow(&m, r, m.logWidth)
 		} else {
@@ -470,6 +508,10 @@ func (m *Model) getHints() string {
 		return m.notification
 	}
 
+	if m.topMode != nil {
+		return "c: CPU | m: MEM | n: name | u: uptime | r: reverse | Esc/q: exit"
+	}
+
 	if m.scanMode != nil {
 		return "Space: toggle | a: all/none | Tab: focus | Enter: confirm | Esc: cancel"
 	}
@@ -512,6 +554,11 @@ func (m Model) handleKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Ctrl+C → quit
 	if isCtrl(msg, "c") {
 		return m.handleQuit()
+	}
+
+	// Top mode
+	if m.topMode != nil {
+		return m.handleTopKeypress(msg)
 	}
 
 	// Scan mode
@@ -986,6 +1033,10 @@ func (m Model) dispatchCommand(cmd, args string) (tea.Model, tea.Cmd) {
 	case "run":
 		return m, m.handleRun(args)
 
+	case "top":
+		m.topMode = newTopMode()
+		return m, nil
+
 	default:
 		m.systemLog(fmt.Sprintf("Unknown command: %s. Type 'help' for available commands.", cmd))
 		return m, nil
@@ -1020,7 +1071,10 @@ func (m *Model) showStatus(args string) {
 		if status == process.StatusRunning {
 			if p := m.procManager.PID(app.Name); p != 0 {
 				pid = fmt.Sprintf("%d", p)
-				if usage, err := process.GetResourceUsage(p); err == nil {
+				// Prefer monitor stats over one-shot ps
+				if latest := m.resourceMonitor.GetLatest(app.Name); latest != nil {
+					resources = fmt.Sprintf("%.1f%% %s", latest.CPUPercent, process.FormatMemory(latest.MemoryRSS))
+				} else if usage, err := process.GetResourceUsage(p); err == nil {
 					resources = fmt.Sprintf("%.1f%% %s", usage.CPUPercent, process.FormatMemory(usage.MemoryRSS))
 				}
 			}
@@ -1328,6 +1382,7 @@ func (m *Model) showHelp() {
 	m.systemLog("  export <name> [file]    Export app logs to file")
 	m.systemLog("  pin/unpin <name>        Pin/unpin app to top of sidebar")
 	m.systemLog("  run <name> <type>       Run a custom command type")
+	m.systemLog("  top                     Live resource dashboard")
 	m.systemLog("  list                    List configured apps")
 	m.systemLog("  help                    Show this help")
 	m.systemLog("  quit                    Stop all and exit")
@@ -1340,6 +1395,9 @@ func (m *Model) showHelp() {
 	m.systemLog("  devctl add <dir>           Add app from directory")
 	m.systemLog("  devctl add <dir> --start   Add and start immediately")
 	m.systemLog("  devctl status              Show running instance status")
+	m.systemLog("  devctl stats               Show resource statistics")
+	m.systemLog("  devctl stats --watch       Live resource monitoring")
+	m.systemLog("  devctl stats --json        JSON output for scripting")
 	m.systemLog("  devctl ping                Check if devctl is running")
 	m.systemLog("")
 	m.systemLog("Tab: toggle sidebar/command  up/down/j/k: navigate  PgUp/PgDn: scroll")
@@ -1740,6 +1798,9 @@ func (m Model) handleQuit() (tea.Model, tea.Cmd) {
 	if m.healthChecker != nil {
 		m.healthChecker.StopAll()
 	}
+	if m.resourceMonitor != nil {
+		m.resourceMonitor.StopAll()
+	}
 	if m.configWatcher != nil {
 		m.configWatcher.Stop()
 	}
@@ -2129,6 +2190,21 @@ func (m *Model) processEvent(evt process.ProcessEvent) tea.Cmd {
 		m.healthChecker.Unregister(evt.AppName)
 	}
 
+	// Register/unregister resource monitor
+	if evt.Type == process.EventStarted {
+		if app := m.findApp(evt.AppName); app != nil {
+			cfg := process.ThresholdConfig{}
+			if app.ResourceLimits != nil {
+				cfg.MaxCPUPercent = app.ResourceLimits.MaxCPU
+				cfg.MaxMemoryMB = app.ResourceLimits.MaxMemoryMB
+			}
+			m.resourceMonitor.Register(app.Name, cfg)
+		}
+	}
+	if evt.Type == process.EventStopped || evt.Type == process.EventCrashed {
+		m.resourceMonitor.Unregister(evt.AppName)
+	}
+
 	if evt.Type == process.EventErrorDetected {
 		m.notification = "Error detected! [e] copy"
 		m.notificationEnd = time.Now().Add(notifyDuration)
@@ -2158,6 +2234,14 @@ func (m Model) listenForProcessEvents() tea.Cmd {
 	return func() tea.Msg {
 		evt := <-m.procManager.Events()
 		return processEventMsg(evt)
+	}
+}
+
+func (m Model) listenForResourceAlerts() tea.Cmd {
+	ch := m.resourceMonitor.Alerts()
+	return func() tea.Msg {
+		alert := <-ch
+		return resourceAlertMsg(alert)
 	}
 }
 
@@ -2211,6 +2295,49 @@ func (m *Model) handleIPCRequest(msg ipc.IPCRequestMsg) {
 
 	case "add-app":
 		m.handleIPCAddApp(msg)
+
+	case "stats":
+		type appStats struct {
+			Name    string  `json:"name"`
+			Status  string  `json:"status"`
+			PID     int     `json:"pid,omitempty"`
+			CPU     float64 `json:"cpu"`
+			MemRSS  int64   `json:"memRss"`
+			AvgCPU  float64 `json:"avgCpu,omitempty"`
+			MaxCPU  float64 `json:"maxCpu,omitempty"`
+			AvgMem  int64   `json:"avgMem,omitempty"`
+			MaxMem  int64   `json:"maxMem,omitempty"`
+			Uptime  string  `json:"uptime,omitempty"`
+			Samples int     `json:"samples,omitempty"`
+		}
+		var stats []appStats
+		for _, app := range m.apps {
+			s := appStats{
+				Name:   app.Name,
+				Status: string(m.procManager.GetStatus(app.Name)),
+				PID:    m.procManager.PID(app.Name),
+			}
+			if rs := m.resourceMonitor.GetStats(app.Name); rs != nil {
+				s.CPU = rs.Current.CPUPercent
+				s.MemRSS = rs.Current.MemoryRSS
+				s.AvgCPU = rs.AvgCPU
+				s.MaxCPU = rs.MaxCPU
+				s.AvgMem = rs.AvgMemory
+				s.MaxMem = rs.MaxMemory
+				s.Samples = rs.SampleCount
+			}
+			if m.procManager.GetStatus(app.Name) == process.StatusRunning {
+				s.Uptime = formatUptime(m.procManager.Uptime(app.Name))
+			}
+			stats = append(stats, s)
+		}
+		appsJSON, _ := json.Marshal(stats)
+		msg.ResponseCh <- ipc.Response{
+			OK:      true,
+			PID:     os.Getpid(),
+			Project: m.projectRoot,
+			Apps:    appsJSON,
+		}
 
 	default:
 		msg.ResponseCh <- ipc.Response{

@@ -13,22 +13,29 @@ type HealthCheckConfig struct {
 	Interval int    `json:"interval"` // milliseconds
 }
 
+// ResourceLimitsConfig defines optional resource thresholds for an app.
+type ResourceLimitsConfig struct {
+	MaxCPU      float64 `json:"maxCpu,omitempty"`
+	MaxMemoryMB int64   `json:"maxMemoryMB,omitempty"`
+}
+
 // App represents a single application entry in apps.json.
 type App struct {
-	Name         string             `json:"name"`
-	Dir          string             `json:"dir"`
-	Command      string             `json:"command"`
-	Ports        []int              `json:"ports"`
-	AutoRestart  *bool              `json:"autoRestart,omitempty"`
-	RestartDelay *int               `json:"restartDelay,omitempty"`
-	MaxRestarts  *int               `json:"maxRestarts,omitempty"`
-	Env          map[string]string  `json:"env,omitempty"`
-	DependsOn    []string           `json:"dependsOn,omitempty"`
-	Group        string             `json:"group,omitempty"`
-	HealthCheck  *HealthCheckConfig `json:"healthCheck,omitempty"`
-	Pinned        *bool              `json:"pinned,omitempty"`
-	Notifications *bool              `json:"notifications,omitempty"`
-	Commands      map[string]string  `json:"commands,omitempty"`
+	Name           string                `json:"name"`
+	Dir            string                `json:"dir"`
+	Command        string                `json:"command"`
+	Ports          []int                 `json:"ports"`
+	AutoRestart    *bool                 `json:"autoRestart,omitempty"`
+	RestartDelay   *int                  `json:"restartDelay,omitempty"`
+	MaxRestarts    *int                  `json:"maxRestarts,omitempty"`
+	Env            map[string]string     `json:"env,omitempty"`
+	DependsOn      []string              `json:"dependsOn,omitempty"`
+	Group          string                `json:"group,omitempty"`
+	HealthCheck    *HealthCheckConfig    `json:"healthCheck,omitempty"`
+	Pinned         *bool                 `json:"pinned,omitempty"`
+	Notifications  *bool                 `json:"notifications,omitempty"`
+	Commands       map[string]string     `json:"commands,omitempty"`
+	ResourceLimits *ResourceLimitsConfig `json:"resourceLimits,omitempty"`
 }
 
 // Validate checks that an App entry has all required fields.
@@ -67,6 +74,14 @@ func (a *App) Validate() error {
 	for k, v := range a.Commands {
 		if v == "" {
 			return fmt.Errorf("\"commands\" value for %q must be non-empty", k)
+		}
+	}
+	if a.ResourceLimits != nil {
+		if a.ResourceLimits.MaxCPU < 0 {
+			return fmt.Errorf("\"resourceLimits.maxCpu\" must be non-negative")
+		}
+		if a.ResourceLimits.MaxMemoryMB < 0 {
+			return fmt.Errorf("\"resourceLimits.maxMemoryMB\" must be non-negative")
 		}
 	}
 	return nil
@@ -151,6 +166,9 @@ func Save(projectRoot string, apps []App) error {
 		}
 		if len(a.Commands) > 0 {
 			clean[i].Commands = a.Commands
+		}
+		if a.ResourceLimits != nil {
+			clean[i].ResourceLimits = a.ResourceLimits
 		}
 	}
 

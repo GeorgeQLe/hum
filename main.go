@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -73,7 +74,21 @@ func main() {
 	addCmd.Flags().StringVar(&addPorts, "ports", "", "Override detected ports (comma-separated)")
 	addCmd.Flags().BoolVar(&addStart, "start", false, "Start the app after adding")
 
-	rootCmd.AddCommand(pingCmd, statusCmd, addCmd)
+	var statsWatch bool
+	var statsJSON bool
+
+	statsCmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show resource statistics",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStats(statsWatch, statsJSON)
+		},
+	}
+
+	statsCmd.Flags().BoolVar(&statsWatch, "watch", false, "Continuously update every 2s")
+	statsCmd.Flags().BoolVar(&statsJSON, "json", false, "Output as JSON")
+
+	rootCmd.AddCommand(pingCmd, statusCmd, addCmd, statsCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -282,6 +297,113 @@ func runAdd(dir, nameFlag, commandFlag, portsFlag string, autoStart bool) error 
 	}
 
 	return nil
+}
+
+func runStats(watch, jsonOut bool) error {
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return fmt.Errorf("could not find project root: %w", err)
+	}
+
+	client := ipc.NewClient(projectRoot)
+
+	for {
+		resp, err := client.Stats()
+		if err != nil {
+			return fmt.Errorf("devctl is not running: %w", err)
+		}
+
+		if !resp.OK {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", resp.Error)
+			os.Exit(1)
+		}
+
+		if jsonOut {
+			if resp.Apps != nil {
+				fmt.Println(string(resp.Apps))
+			} else {
+				fmt.Println("[]")
+			}
+		} else {
+			if watch {
+				// Clear screen
+				fmt.Print("\033[2J\033[H")
+			}
+			fmt.Printf("devctl (PID %d) — %s\n\n", resp.PID, resp.Project)
+
+			if resp.Apps == nil {
+				fmt.Println("  No apps configured.")
+			} else {
+				type appStats struct {
+					Name    string  `json:"name"`
+					Status  string  `json:"status"`
+					PID     int     `json:"pid"`
+					CPU     float64 `json:"cpu"`
+					MemRSS  int64   `json:"memRss"`
+					AvgCPU  float64 `json:"avgCpu"`
+					MaxCPU  float64 `json:"maxCpu"`
+					AvgMem  int64   `json:"avgMem"`
+					MaxMem  int64   `json:"maxMem"`
+					Uptime  string  `json:"uptime"`
+					Samples int     `json:"samples"`
+				}
+
+				var apps []appStats
+				if err := json.Unmarshal(resp.Apps, &apps); err != nil {
+					return fmt.Errorf("invalid response: %w", err)
+				}
+
+				fmt.Printf("  %-20s %-10s %8s %10s %10s %10s %s\n",
+					"NAME", "STATUS", "CPU", "MEM", "PEAK CPU", "PEAK MEM", "UPTIME")
+
+				for _, app := range apps {
+					cpuStr := "-"
+					memStr := "-"
+					peakCPU := "-"
+					peakMem := "-"
+					uptime := "-"
+
+					if app.Status == "running" {
+						cpuStr = fmt.Sprintf("%.1f%%", app.CPU)
+						memStr = formatBytes(app.MemRSS)
+						if app.Samples > 0 {
+							peakCPU = fmt.Sprintf("%.1f%%", app.MaxCPU)
+							peakMem = formatBytes(app.MaxMem)
+						}
+						uptime = app.Uptime
+					}
+
+					icon := "\033[90m○\033[0m"
+					if app.Status == "running" {
+						icon = "\033[32m●\033[0m"
+					}
+
+					fmt.Printf("  %s %-20s %-10s %8s %10s %10s %10s %s\n",
+						icon, app.Name, app.Status, cpuStr, memStr, peakCPU, peakMem, uptime)
+				}
+			}
+		}
+
+		if !watch {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	return nil
+}
+
+func formatBytes(b int64) string {
+	if b < 1024 {
+		return fmt.Sprintf("%dB", b)
+	}
+	if b < 1024*1024 {
+		return fmt.Sprintf("%.0fK", float64(b)/1024)
+	}
+	if b < 1024*1024*1024 {
+		return fmt.Sprintf("%.1fM", float64(b)/(1024*1024))
+	}
+	return fmt.Sprintf("%.1fG", float64(b)/(1024*1024*1024))
 }
 
 // findProjectRoot walks up from CWD to find a directory with apps.json.
