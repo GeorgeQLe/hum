@@ -234,15 +234,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layoutDirty = true
 		return m, nil
 
-	case tea.MouseMsg:
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.scrollLog(-3)
-		case tea.MouseButtonWheelDown:
-			m.scrollLog(3)
-		}
-		return m, nil
-
 	case tea.KeyMsg:
 		if m.quitting {
 			return m, nil
@@ -561,13 +552,13 @@ func (m *Model) getHints() string {
 	}
 
 	if m.focusArea == focusSidebar {
-		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | ^↑↓/wheel: scroll | ^B: sidebar | ^C: quit"
+		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | ^J/K: scroll | ^B: sidebar | ^C: quit"
 		if hasErrors {
 			hint = "e: copy error | E: copy all | " + hint
 		}
 		return hint
 	}
-	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | up/down: history | ^↑↓/wheel: scroll | ^B: sidebar | ^C: quit"
+	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | up/down: history | ^J/K: scroll | ^B: sidebar | ^C: quit"
 	if hasErrors {
 		hint = "e: copy error | E: copy all | " + hint
 	}
@@ -618,12 +609,12 @@ func (m Model) handleKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Ctrl+Up/Down: scroll by one line
-	if isKey(msg, "ctrl+up") {
+	// Ctrl+K/J: scroll log by one line
+	if isCtrl(msg, "k") {
 		m.scrollLog(-1)
 		return m, nil
 	}
-	if isKey(msg, "ctrl+down") {
+	if isCtrl(msg, "j") {
 		m.scrollLog(1)
 		return m, nil
 	}
@@ -1443,7 +1434,7 @@ func (m *Model) showHelp() {
 	m.systemLog("  devctl ping                Check if devctl is running")
 	m.systemLog("")
 	m.systemLog("Tab: toggle sidebar/command  up/down/j/k: navigate  PgUp/PgDn: scroll")
-	m.systemLog("Ctrl+Up/Down: scroll line  Mouse wheel: scroll  Ctrl+B: toggle sidebar")
+	m.systemLog("Ctrl+J/K: scroll line  Ctrl+B: toggle sidebar")
 	m.systemLog("/: search  t: timestamps  e/E: copy errors  s/S/r: start/stop/restart  ^C: quit")
 }
 
