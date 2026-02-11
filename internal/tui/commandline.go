@@ -8,14 +8,17 @@ import (
 var commandNames = []string{
 	"start", "stop", "restart", "status",
 	"ports", "scan", "add", "remove", "reload",
-	"autorestart", "clear-errors", "list", "help", "quit",
+	"autorestart", "clear-errors", "export",
+	"pin", "unpin", "run",
+	"list", "help", "quit",
 }
 
 // Commands that accept an app name argument.
 var commandsWithName = map[string]bool{
 	"start": true, "stop": true, "restart": true,
 	"status": true, "remove": true, "autorestart": true,
-	"clear-errors": true,
+	"clear-errors": true, "export": true,
+	"pin": true, "unpin": true, "run": true,
 }
 
 // Commands that also accept "all".
@@ -51,6 +54,34 @@ func (m *Model) complete(input string) (matches []string, partial string) {
 	}
 
 	if commandsWithName[cmd] {
+		// For "run", if we already have an app name, complete command types
+		if cmd == "run" && len(parts) >= 3 || (cmd == "run" && len(parts) == 2 && hasTrailingSpace) {
+			appName := parts[1]
+			app := m.findApp(appName)
+			if app != nil && len(app.Commands) > 0 {
+				for cmdType := range app.Commands {
+					if strings.HasPrefix(cmdType, p) {
+						matches = append(matches, cmdType)
+					}
+				}
+				return matches, p
+			}
+			return nil, p
+		}
+
+		// @group completion
+		if strings.HasPrefix(p, "@") {
+			groupPrefix := p[1:]
+			seen := make(map[string]bool)
+			for _, app := range m.apps {
+				if app.Group != "" && !seen[app.Group] && strings.HasPrefix(app.Group, groupPrefix) {
+					matches = append(matches, "@"+app.Group)
+					seen[app.Group] = true
+				}
+			}
+			return matches, p
+		}
+
 		for _, app := range m.apps {
 			if strings.HasPrefix(app.Name, p) {
 				matches = append(matches, app.Name)

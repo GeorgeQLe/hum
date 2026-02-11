@@ -2,12 +2,64 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/georgele/devctl/internal/health"
 	"github.com/georgele/devctl/internal/process"
 )
 
 const systemName = "devctl"
+
+// sidebarRow represents a row in the sidebar, which may be a group header or an app entry.
+type sidebarRow struct {
+	isGroupHeader bool
+	groupName     string
+	appIdx        int // index into m.apps (-1 for system/group headers)
+	selectIdx     int // index for selection tracking
+}
+
+// buildSidebarRows computes the sidebar row layout with group headers and pinned sorting.
+func buildSidebarRows(m *Model) []sidebarRow {
+	var rows []sidebarRow
+
+	// System entry
+	rows = append(rows, sidebarRow{appIdx: -1, selectIdx: 0})
+
+	// Sort apps: pinned first, then by group, then original order
+	type indexedApp struct {
+		origIdx int
+		pinned  bool
+		group   string
+	}
+	ordered := make([]indexedApp, len(m.apps))
+	for i, a := range m.apps {
+		pinned := a.Pinned != nil && *a.Pinned
+		ordered[i] = indexedApp{origIdx: i, pinned: pinned, group: a.Group}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].pinned != ordered[j].pinned {
+			return ordered[i].pinned
+		}
+		if ordered[i].group != ordered[j].group {
+			return ordered[i].group < ordered[j].group
+		}
+		return false
+	})
+
+	lastGroup := ""
+	for _, o := range ordered {
+		g := m.apps[o.origIdx].Group
+		if g != "" && g != lastGroup {
+			rows = append(rows, sidebarRow{isGroupHeader: true, groupName: g, appIdx: -1, selectIdx: -1})
+			lastGroup = g
+		} else if g == "" && lastGroup != "" {
+			lastGroup = ""
+		}
+		rows = append(rows, sidebarRow{appIdx: o.origIdx, selectIdx: o.origIdx + 1})
+	}
+	return rows
+}
 
 // renderSidebar renders the sidebar content for the given row.
 func renderSidebar(m *Model, rowIdx, width int) string {
@@ -22,20 +74,25 @@ func renderSidebar(m *Model, rowIdx, width int) string {
 		return padRight(" "+label, width)
 	}
 
-	// Row 1: devctl system entry
-	if rowIdx == 1 {
-		return renderSidebarEntry(m, 0, systemName, "", width)
-	}
-
-	// Row 2+: apps
-	appIdx := rowIdx - 2
-	if appIdx < 0 || appIdx >= len(m.apps) {
+	sidebarRows := buildSidebarRows(m)
+	dataIdx := rowIdx - 1 // -1 for header
+	if dataIdx < 0 || dataIdx >= len(sidebarRows) {
 		return strings.Repeat(" ", width)
 	}
 
-	app := m.apps[appIdx]
+	row := sidebarRows[dataIdx]
+	if row.isGroupHeader {
+		label := styleDim.Render(" ─ " + row.groupName + " ")
+		return padRight(label, width)
+	}
+	if row.appIdx == -1 {
+		// System entry
+		return renderSidebarEntry(m, 0, systemName, "", width)
+	}
+
+	app := m.apps[row.appIdx]
 	status := m.procManager.GetStatus(app.Name)
-	return renderSidebarAppEntry(m, appIdx+1, app.Name, status, width)
+	return renderSidebarAppEntry(m, row.selectIdx, app.Name, status, width)
 }
 
 func renderSidebarEntry(m *Model, selectIdx int, name string, _ string, width int) string {
@@ -96,28 +153,44 @@ func renderSidebarAppEntry(m *Model, selectIdx int, name string, status process.
 		errorSuffixLen = 1
 	}
 
-	// Truncate name if needed (width - 3 prefix - 2 dot+space - error indicator)
-	maxNameLen := width - 5 - errorSuffixLen
+	// Health indicator
+	healthSuffix := ""
+	healthSuffixLen := 0
+	if m.healthChecker != nil && m.healthChecker.HasCheck(name) {
+		hs := m.healthChecker.GetStatus(name)
+		switch hs {
+		case health.StatusHealthy:
+			healthSuffix = styleStatusRunning.Render("♥")
+			healthSuffixLen = 1
+		case health.StatusUnhealthy:
+			healthSuffix = styleStatusCrashed.Render("♥")
+			healthSuffixLen = 1
+		}
+	}
+
+	// Truncate name if needed (width - 3 prefix - 2 dot+space - error indicator - health)
+	maxNameLen := width - 5 - errorSuffixLen - healthSuffixLen
 	displayName := name
 	if len(displayName) > maxNameLen && maxNameLen > 1 {
 		displayName = displayName[:maxNameLen-1] + "…"
 	}
 
-	padLen := width - 3 - len(displayName) - 2 - errorSuffixLen
+	padLen := width - 3 - len(displayName) - 2 - errorSuffixLen - healthSuffixLen
 	if padLen < 0 {
 		padLen = 0
 	}
 	padding := strings.Repeat(" ", padLen)
 
 	dot := dotStyle(dotChar)
+	suffixes := healthSuffix + errorSuffix + dot
 
 	if isSelected && m.focusArea == focusSidebar {
-		return styleInverse.Render(fmt.Sprintf("%s%s%s ", prefix, displayName, padding)) + errorSuffix + dot
+		return styleInverse.Render(fmt.Sprintf("%s%s%s ", prefix, displayName, padding)) + suffixes
 	}
 	if isSelected {
-		return styleBold.Render(prefix+displayName) + padding + " " + errorSuffix + dot
+		return styleBold.Render(prefix+displayName) + padding + " " + suffixes
 	}
-	return prefix + displayName + padding + " " + errorSuffix + dot
+	return prefix + displayName + padding + " " + suffixes
 }
 
 func visLen(s string) int {

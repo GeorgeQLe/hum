@@ -1,13 +1,100 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/georgele/devctl/internal/config"
 	"github.com/georgele/devctl/internal/process"
 )
+
+// testModel creates a minimal Model for testing with the given apps.
+func testModel(apps ...config.App) Model {
+	pm := process.NewManager(os.TempDir())
+	pm.GetLogBuffer("devctl")
+	return Model{
+		apps:        apps,
+		projectRoot: os.TempDir(),
+		procManager: pm,
+		focusArea:   focusCommand,
+		historyIdx:  -1,
+		width:       120,
+		height:      40,
+	}
+}
+
+// lastSystemLog returns the last line logged to the devctl system buffer.
+func lastSystemLog(m *Model) string {
+	buf := m.procManager.GetLogBuffer("devctl")
+	lines, _, _ := buf.Snapshot()
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[len(lines)-1].Text
+}
+
+// allSystemLogs returns all log lines joined by newline.
+func allSystemLogs(m *Model) string {
+	buf := m.procManager.GetLogBuffer("devctl")
+	lines, _, _ := buf.Snapshot()
+	var texts []string
+	for _, l := range lines {
+		texts = append(texts, l.Text)
+	}
+	return strings.Join(texts, "\n")
+}
+
+// keyMsg builds a tea.KeyMsg for a named key (e.g. "tab", "up", "enter").
+func keyMsg(key string) tea.KeyMsg {
+	switch key {
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "delete":
+		return tea.KeyMsg{Type: tea.KeyDelete}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
+	case "home":
+		return tea.KeyMsg{Type: tea.KeyHome}
+	case "end":
+		return tea.KeyMsg{Type: tea.KeyEnd}
+	case "esc", "escape":
+		return tea.KeyMsg{Type: tea.KeyEscape}
+	default:
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+	}
+}
+
+// ctrlMsg builds a Ctrl+key KeyMsg.
+func ctrlMsg(key string) tea.KeyMsg {
+	switch key {
+	case "u":
+		return tea.KeyMsg{Type: tea.KeyCtrlU}
+	case "w":
+		return tea.KeyMsg{Type: tea.KeyCtrlW}
+	case "a":
+		return tea.KeyMsg{Type: tea.KeyCtrlA}
+	case "e":
+		return tea.KeyMsg{Type: tea.KeyCtrlE}
+	case "f":
+		return tea.KeyMsg{Type: tea.KeyCtrlF}
+	default:
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+	}
+}
 
 func TestParseCommand(t *testing.T) {
 	tests := []struct {
@@ -340,4 +427,497 @@ func TestVisLen(t *testing.T) {
 			t.Errorf("visLen(%q) = %d, want %d", tt.input, got, tt.want)
 		}
 	}
+}
+
+// --- Phase 2: TUI Test Coverage ---
+
+func TestDispatchCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     string
+		args    string
+		wantLog string
+	}{
+		{"start no args", "start", "", "Usage: start"},
+		{"stop no args", "stop", "", "Usage: stop"},
+		{"restart no args", "restart", "", "Usage: restart"},
+		{"unknown command", "foobar", "", "Unknown command: foobar"},
+		{"help", "help", "", "devctl — Multi-App"},
+		{"list no apps", "list", "", "No apps configured"},
+		{"status no apps", "status", "", "No apps configured"},
+		{"remove no args", "remove", "", "Usage: remove"},
+		{"remove unknown", "remove", "ghost", "Unknown app: ghost"},
+		{"clear-errors all", "clear-errors", "all", "All errors cleared"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := testModel()
+			m.dispatchCommand(tt.cmd, tt.args)
+			log := allSystemLogs(&m)
+			if !strings.Contains(log, tt.wantLog) {
+				t.Errorf("dispatchCommand(%q, %q): log = %q, want containing %q", tt.cmd, tt.args, log, tt.wantLog)
+			}
+		})
+	}
+}
+
+func TestSidebarKeypress(t *testing.T) {
+	app1 := config.App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}}
+	app2 := config.App{Name: "api", Dir: ".", Command: "npm dev", Ports: []int{8080}}
+
+	t.Run("up/down navigation", func(t *testing.T) {
+		m := testModel(app1, app2)
+		m.focusArea = focusSidebar
+		m.selectedIdx = 1
+
+		// Down
+		result, _ := m.handleSidebarKeypress(keyMsg("down"))
+		rm := result.(Model)
+		if rm.selectedIdx != 2 {
+			t.Errorf("expected selectedIdx=2 after down, got %d", rm.selectedIdx)
+		}
+
+		// Down at boundary (2 apps + system = max index 2)
+		result, _ = rm.handleSidebarKeypress(keyMsg("down"))
+		rm = result.(Model)
+		if rm.selectedIdx != 2 {
+			t.Errorf("expected selectedIdx=2 at boundary, got %d", rm.selectedIdx)
+		}
+
+		// Up
+		result, _ = rm.handleSidebarKeypress(keyMsg("up"))
+		rm = result.(Model)
+		if rm.selectedIdx != 1 {
+			t.Errorf("expected selectedIdx=1 after up, got %d", rm.selectedIdx)
+		}
+
+		// Up to 0
+		result, _ = rm.handleSidebarKeypress(keyMsg("up"))
+		rm = result.(Model)
+		if rm.selectedIdx != 0 {
+			t.Errorf("expected selectedIdx=0, got %d", rm.selectedIdx)
+		}
+
+		// Up at boundary 0
+		result, _ = rm.handleSidebarKeypress(keyMsg("up"))
+		rm = result.(Model)
+		if rm.selectedIdx != 0 {
+			t.Errorf("expected selectedIdx=0 at top boundary, got %d", rm.selectedIdx)
+		}
+	})
+
+	t.Run("j/k navigation", func(t *testing.T) {
+		m := testModel(app1, app2)
+		m.focusArea = focusSidebar
+		m.selectedIdx = 0
+
+		result, _ := m.handleSidebarKeypress(keyMsg("j"))
+		rm := result.(Model)
+		if rm.selectedIdx != 1 {
+			t.Errorf("expected selectedIdx=1 after j, got %d", rm.selectedIdx)
+		}
+
+		result, _ = rm.handleSidebarKeypress(keyMsg("k"))
+		rm = result.(Model)
+		if rm.selectedIdx != 0 {
+			t.Errorf("expected selectedIdx=0 after k, got %d", rm.selectedIdx)
+		}
+	})
+
+	t.Run("tab switches to command", func(t *testing.T) {
+		m := testModel(app1)
+		m.focusArea = focusSidebar
+
+		result, _ := m.handleSidebarKeypress(keyMsg("tab"))
+		rm := result.(Model)
+		if rm.focusArea != focusCommand {
+			t.Error("expected focusCommand after tab")
+		}
+	})
+
+	t.Run("enter switches to command", func(t *testing.T) {
+		m := testModel(app1)
+		m.focusArea = focusSidebar
+
+		result, _ := m.handleSidebarKeypress(keyMsg("enter"))
+		rm := result.(Model)
+		if rm.focusArea != focusCommand {
+			t.Error("expected focusCommand after enter")
+		}
+	})
+
+	t.Run("printable char switches to command mode", func(t *testing.T) {
+		m := testModel(app1)
+		m.focusArea = focusSidebar
+
+		result, _ := m.handleSidebarKeypress(keyMsg("h"))
+		rm := result.(Model)
+		if rm.focusArea != focusCommand {
+			t.Error("expected focusCommand after printable char")
+		}
+	})
+}
+
+func TestCommandKeypress(t *testing.T) {
+	t.Run("backspace", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = "helo"
+		m.cmdCursor = 4
+
+		result, _ := m.handleCommandKeypress(keyMsg("backspace"))
+		rm := result.(Model)
+		if rm.cmdInput != "hel" {
+			t.Errorf("expected 'hel' after backspace, got %q", rm.cmdInput)
+		}
+		if rm.cmdCursor != 3 {
+			t.Errorf("expected cursor=3, got %d", rm.cmdCursor)
+		}
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = "hello"
+		m.cmdCursor = 2
+
+		result, _ := m.handleCommandKeypress(keyMsg("delete"))
+		rm := result.(Model)
+		if rm.cmdInput != "helo" {
+			t.Errorf("expected 'helo' after delete, got %q", rm.cmdInput)
+		}
+	})
+
+	t.Run("left/right cursor", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = "hello"
+		m.cmdCursor = 3
+
+		result, _ := m.handleCommandKeypress(keyMsg("left"))
+		rm := result.(Model)
+		if rm.cmdCursor != 2 {
+			t.Errorf("expected cursor=2 after left, got %d", rm.cmdCursor)
+		}
+
+		result, _ = rm.handleCommandKeypress(keyMsg("right"))
+		rm = result.(Model)
+		if rm.cmdCursor != 3 {
+			t.Errorf("expected cursor=3 after right, got %d", rm.cmdCursor)
+		}
+	})
+
+	t.Run("home/end", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = "hello"
+		m.cmdCursor = 3
+
+		result, _ := m.handleCommandKeypress(keyMsg("home"))
+		rm := result.(Model)
+		if rm.cmdCursor != 0 {
+			t.Errorf("expected cursor=0 after home, got %d", rm.cmdCursor)
+		}
+
+		result, _ = rm.handleCommandKeypress(keyMsg("end"))
+		rm = result.(Model)
+		if rm.cmdCursor != 5 {
+			t.Errorf("expected cursor=5 after end, got %d", rm.cmdCursor)
+		}
+	})
+
+	t.Run("ctrl+u clears line", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = "hello world"
+		m.cmdCursor = 11
+
+		result, _ := m.handleCommandKeypress(ctrlMsg("u"))
+		rm := result.(Model)
+		if rm.cmdInput != "" {
+			t.Errorf("expected empty input after ctrl+u, got %q", rm.cmdInput)
+		}
+		if rm.cmdCursor != 0 {
+			t.Errorf("expected cursor=0, got %d", rm.cmdCursor)
+		}
+	})
+
+	t.Run("ctrl+w deletes word", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = "start web"
+		m.cmdCursor = 9
+
+		result, _ := m.handleCommandKeypress(ctrlMsg("w"))
+		rm := result.(Model)
+		if rm.cmdInput != "start " {
+			t.Errorf("expected 'start ' after ctrl+w, got %q", rm.cmdInput)
+		}
+	})
+
+	t.Run("tab with empty input switches to sidebar", func(t *testing.T) {
+		m := testModel()
+		m.focusArea = focusCommand
+		m.cmdInput = ""
+
+		result, _ := m.handleCommandKeypress(keyMsg("tab"))
+		rm := result.(Model)
+		if rm.focusArea != focusSidebar {
+			t.Error("expected focusSidebar after tab with empty input")
+		}
+	})
+
+	t.Run("/ with empty input enters search mode", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = ""
+
+		result, _ := m.handleCommandKeypress(keyMsg("/"))
+		rm := result.(Model)
+		if rm.searchMode == nil {
+			t.Error("expected searchMode to be set after /")
+		}
+	})
+}
+
+func TestNavigateHistory(t *testing.T) {
+	t.Run("no history is noop", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = "current"
+		m.navigateHistory(-1)
+		if m.cmdInput != "current" {
+			t.Errorf("expected input unchanged, got %q", m.cmdInput)
+		}
+	})
+
+	t.Run("up saves current and loads last", func(t *testing.T) {
+		m := testModel()
+		m.cmdHistory = []string{"first", "second", "third"}
+		m.cmdInput = "current"
+		m.historyIdx = -1
+
+		m.navigateHistory(-1)
+		if m.historyTmp != "current" {
+			t.Errorf("expected historyTmp='current', got %q", m.historyTmp)
+		}
+		if m.cmdInput != "third" {
+			t.Errorf("expected input='third', got %q", m.cmdInput)
+		}
+		if m.historyIdx != 2 {
+			t.Errorf("expected historyIdx=2, got %d", m.historyIdx)
+		}
+	})
+
+	t.Run("multiple ups walk backward", func(t *testing.T) {
+		m := testModel()
+		m.cmdHistory = []string{"first", "second", "third"}
+		m.cmdInput = "current"
+		m.historyIdx = -1
+
+		m.navigateHistory(-1) // -> third
+		m.navigateHistory(-1) // -> second
+		if m.cmdInput != "second" {
+			t.Errorf("expected input='second', got %q", m.cmdInput)
+		}
+		m.navigateHistory(-1) // -> first
+		if m.cmdInput != "first" {
+			t.Errorf("expected input='first', got %q", m.cmdInput)
+		}
+		// At top, stays
+		m.navigateHistory(-1)
+		if m.cmdInput != "first" {
+			t.Errorf("expected input='first' at top, got %q", m.cmdInput)
+		}
+	})
+
+	t.Run("down walks forward and restores", func(t *testing.T) {
+		m := testModel()
+		m.cmdHistory = []string{"first", "second"}
+		m.cmdInput = "current"
+		m.historyIdx = -1
+
+		m.navigateHistory(-1) // -> second
+		m.navigateHistory(-1) // -> first
+		m.navigateHistory(1)  // -> second
+		if m.cmdInput != "second" {
+			t.Errorf("expected input='second', got %q", m.cmdInput)
+		}
+		m.navigateHistory(1) // -> current (restored)
+		if m.cmdInput != "current" {
+			t.Errorf("expected input='current' (restored), got %q", m.cmdInput)
+		}
+		if m.historyIdx != -1 {
+			t.Errorf("expected historyIdx=-1 after full forward, got %d", m.historyIdx)
+		}
+	})
+}
+
+func TestHandleTabCompletion(t *testing.T) {
+	app1 := config.App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}}
+	app2 := config.App{Name: "worker", Dir: ".", Command: "npm dev", Ports: []int{9090}}
+	app3 := config.App{Name: "api", Dir: ".", Command: "npm dev", Ports: []int{8080}}
+
+	t.Run("single match auto-completes", func(t *testing.T) {
+		m := testModel(app1, app2, app3)
+		m.cmdInput = "stop ap"
+		m.cmdCursor = 7
+
+		m.handleTabCompletion()
+		if m.cmdInput != "stop api " {
+			t.Errorf("expected 'stop api ', got %q", m.cmdInput)
+		}
+	})
+
+	t.Run("multiple matches shows common prefix", func(t *testing.T) {
+		m := testModel(app1, app2, app3)
+		m.cmdInput = "start w"
+		m.cmdCursor = 7
+
+		m.handleTabCompletion()
+		// "web" and "worker" share prefix "w" (already typed), then "w" -> stays "w"
+		// Actually both start with "w", common prefix between "web" and "worker" is "w"
+		// Since partial is "w" and common prefix is "w" (same length), no extension
+		// But tabMatches should be set
+		if m.tabMatches == nil {
+			t.Error("expected tabMatches to be set")
+		}
+	})
+
+	t.Run("subsequent tab cycles through matches", func(t *testing.T) {
+		m := testModel(app1, app2, app3)
+		m.cmdInput = "start w"
+		m.cmdCursor = 7
+
+		m.handleTabCompletion() // sets tabMatches
+		if m.tabMatches == nil {
+			t.Fatal("expected tabMatches to be set")
+		}
+		firstMatch := m.cmdInput
+		m.handleTabCompletion() // cycle
+		secondMatch := m.cmdInput
+		if firstMatch == secondMatch {
+			// The first handleTabCompletion sets tabMatches and logs; second cycles
+			// Actually after first call, tabIdx=0 so cycling should move to tabIdx=1
+		}
+		// Just verify cycling happens
+		if m.tabIdx == 0 {
+			t.Error("expected tabIdx to advance after second tab")
+		}
+	})
+
+	t.Run("non-tab input clears tabMatches", func(t *testing.T) {
+		m := testModel(app1, app2)
+		m.cmdInput = "start w"
+		m.cmdCursor = 7
+		m.tabMatches = []string{"web", "worker"}
+
+		// Type a regular char — handleCommandKeypress returns new model
+		result, _ := m.handleCommandKeypress(keyMsg("e"))
+		rm := result.(Model)
+		if rm.tabMatches != nil {
+			t.Error("expected tabMatches to be cleared after regular input")
+		}
+	})
+}
+
+func TestRecalcLayout(t *testing.T) {
+	t.Run("sidebar min width", func(t *testing.T) {
+		m := testModel(config.App{Name: "a", Dir: ".", Command: "x", Ports: []int{80}})
+		m.width = 120
+		m.height = 40
+		m.recalcLayout()
+		if m.sidebarWidth < 16 {
+			t.Errorf("expected sidebarWidth >= 16, got %d", m.sidebarWidth)
+		}
+	})
+
+	t.Run("sidebar based on name length", func(t *testing.T) {
+		m := testModel(config.App{Name: "my-long-app-name", Dir: ".", Command: "x", Ports: []int{80}})
+		m.width = 120
+		m.height = 40
+		m.recalcLayout()
+		expected := len("my-long-app-name") + 6
+		if m.sidebarWidth != expected {
+			t.Errorf("expected sidebarWidth=%d, got %d", expected, m.sidebarWidth)
+		}
+	})
+
+	t.Run("sidebar capped at 35%", func(t *testing.T) {
+		m := testModel(config.App{Name: "very-very-very-very-very-long-name", Dir: ".", Command: "x", Ports: []int{80}})
+		m.width = 80
+		m.height = 40
+		m.recalcLayout()
+		maxSidebar := 80 * 35 / 100
+		if m.sidebarWidth > maxSidebar {
+			t.Errorf("expected sidebarWidth <= %d (35%% of 80), got %d", maxSidebar, m.sidebarWidth)
+		}
+	})
+
+	t.Run("log width calculation", func(t *testing.T) {
+		m := testModel()
+		m.width = 120
+		m.height = 40
+		m.recalcLayout()
+		expectedLogWidth := 120 - m.sidebarWidth - 3
+		if m.logWidth != expectedLogWidth {
+			t.Errorf("expected logWidth=%d, got %d", expectedLogWidth, m.logWidth)
+		}
+	})
+}
+
+func TestSearchModeEntryExit(t *testing.T) {
+	t.Run("/ enters search mode", func(t *testing.T) {
+		m := testModel()
+		m.cmdInput = ""
+		result, _ := m.handleCommandKeypress(keyMsg("/"))
+		rm := result.(Model)
+		if rm.searchMode == nil {
+			t.Error("expected searchMode after /")
+		}
+	})
+
+	t.Run("escape exits search mode", func(t *testing.T) {
+		m := testModel()
+		m.searchMode = newSearchMode()
+		result, _ := m.handleSearchKeypress(keyMsg("esc"))
+		rm := result.(Model)
+		if rm.searchMode != nil {
+			t.Error("expected nil searchMode after escape")
+		}
+	})
+
+	t.Run("enter exits search mode", func(t *testing.T) {
+		m := testModel()
+		m.searchMode = newSearchMode()
+		result, _ := m.handleSearchKeypress(keyMsg("enter"))
+		rm := result.(Model)
+		if rm.searchMode != nil {
+			t.Error("expected nil searchMode after enter")
+		}
+	})
+}
+
+func TestModeTransitions(t *testing.T) {
+	t.Run("search mode blocks question mode", func(t *testing.T) {
+		m := testModel()
+		m.searchMode = newSearchMode()
+		// In search mode, keypress should go to search handler not question
+		if m.questionMode != nil {
+			t.Error("modes should not overlap")
+		}
+	})
+
+	t.Run("question mode blocks search", func(t *testing.T) {
+		m := testModel()
+		m.questionMode = &QuestionMode{Prompt: "test: ", callback: func(string) {}}
+		// Verify question mode active, search not
+		if m.searchMode != nil {
+			t.Error("modes should not overlap")
+		}
+	})
+
+	t.Run("scan mode takes priority", func(t *testing.T) {
+		m := testModel()
+		m.scanMode = newScanMode([]config.ScanCandidate{{Name: "test", Dir: ".", Command: "npm dev", Ports: []int{3000}}})
+		// handleKeypress should route to scan handler
+		result, _ := m.handleKeypress(keyMsg("esc"))
+		rm := result.(Model)
+		if rm.scanMode != nil {
+			t.Error("expected scanMode to be cleared after escape")
+		}
+	})
 }

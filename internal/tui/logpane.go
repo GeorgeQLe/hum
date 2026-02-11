@@ -20,11 +20,20 @@ type visualLine struct {
 }
 
 // computeVisualLines pre-computes the wrapped lines visible in the current view.
-func computeVisualLines(logBuf *process.LogBuffer, scrollPos, viewHeight, contentWidth int) []visualLine {
+// If filter is non-nil, only lines matching the filter are included.
+func computeVisualLines(logBuf *process.LogBuffer, scrollPos, viewHeight, contentWidth int, filter *FilterMode) []visualLine {
 	lines, _, _ := logBuf.Snapshot()
 	var result []visualLine
 
 	for i := scrollPos; i < len(lines) && len(result) < viewHeight; i++ {
+		// Apply filter if active
+		if filter != nil && filter.regex != nil {
+			stripped := process.StripAnsi(lines[i].Text)
+			if !filter.regex.MatchString(stripped) {
+				continue
+			}
+		}
+
 		wrapped := wrapLine(lines[i].Text, contentWidth)
 		if len(wrapped) == 0 {
 			wrapped = []string{""}

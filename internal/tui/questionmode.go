@@ -22,7 +22,7 @@ func (m Model) handleQuestionKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cb(answer)
 		return m, nil
 
-	case isKey(msg, "escape"):
+	case isKey(msg, "esc"):
 		cb := q.callback
 		m.questionMode = nil
 		cb("") // empty string signals cancel

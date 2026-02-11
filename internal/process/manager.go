@@ -158,7 +158,8 @@ func (m *Manager) GetStatus(name string) Status {
 }
 
 // Start spawns a process for the given app.
-func (m *Manager) Start(name, command, dir string) error {
+// env optionally provides extra environment variables for the process.
+func (m *Manager) Start(name, command, dir string, env map[string]string) error {
 	m.mu.Lock()
 	existing, hasExisting := m.Entries[name]
 	if hasExisting {
@@ -186,6 +187,9 @@ func (m *Manager) Start(name, command, dir string) error {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = fullDir
 	cmd.Env = append(os.Environ(), "TURBO_UI=stream")
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	// Explicitly ensure child reads from /dev/null, not the terminal (A3)
 	cmd.Stdin = nil
 	// Set process group so we can kill the entire group
@@ -328,11 +332,11 @@ func (m *Manager) Stop(name string) error {
 }
 
 // Restart stops and then starts a process.
-func (m *Manager) Restart(name, command, dir string) error {
+func (m *Manager) Restart(name, command, dir string, env map[string]string) error {
 	if err := m.Stop(name); err != nil {
 		return err
 	}
-	return m.Start(name, command, dir)
+	return m.Start(name, command, dir, env)
 }
 
 // StopAll stops all running processes.

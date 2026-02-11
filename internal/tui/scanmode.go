@@ -104,7 +104,7 @@ func (m Model) handleScanKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.exitScanMode(true)
 		return m, nil
 
-	case isKey(msg, "escape"):
+	case isKey(msg, "esc"):
 		m.exitScanMode(false)
 		return m, nil
 

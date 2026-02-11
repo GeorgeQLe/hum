@@ -4,7 +4,7 @@
 
 ### High Priority
 
-- [x] **Config File Watcher** - Auto-reload `apps.json` when it changes on disk using `fs.watch()`, eliminating need for manual `reload` command
+- [x] **Config File Watcher** - Auto-reload `apps.json` when it changes on disk, eliminating need for manual `reload` command
 
 - [ ] **Environment Variables** - Support per-app environment variables in config:
   ```json
@@ -37,9 +37,9 @@
 
 ### Low Priority
 
-- [ ] **Resource Monitoring** - Show CPU/memory usage in `status` command output (via `/proc/<pid>/stat` on Linux, `ps` on macOS)
+- [ ] **Resource Monitoring** - Show CPU/memory usage in `status` command output (via `ps` on macOS/Linux)
 
-- [ ] **Desktop Notifications** - Notify on crash via `notify-send` (Linux), `osascript` (macOS), or `powershell` (Windows)
+- [ ] **Desktop Notifications** - Notify on crash via `osascript` (macOS) or `notify-send` (Linux)
 
 - [ ] **Favorite/Pin Apps** - Pin frequently used apps to top of sidebar
 
@@ -48,75 +48,7 @@
   { "commands": { "dev": "pnpm dev", "build": "pnpm build" } }
   ```
 
----
-
-## Refactoring
-
-### Code Organization
-
-- [ ] **Split into modules** - Break up the monolithic file:
-  ```
-  devctl.mjs           # Entry point, CLI args
-  lib/terminal.mjs     # ANSI codes, cursor control, box drawing
-  lib/render.mjs       # UI rendering (sidebar, log pane, command line)
-  lib/process.mjs      # Process spawn, stop, restart, auto-restart
-  lib/config.mjs       # Load/save/validate apps.json
-  lib/state.mjs        # Centralized state management
-  lib/commands.mjs     # Command handlers
-  lib/input.mjs        # Keyboard input handling
-  ```
-
-- [ ] **Consolidate state** - Replace scattered global variables with single state object:
-  ```javascript
-  const state = {
-    apps: [],
-    procs: new Map(),
-    ui: { selectedIdx: 0, focusArea: 'command', cmdInput: '', ... },
-    search: null,
-    scan: null,
-    config: { logMaxLines: 5000, ... }
-  };
-  ```
-
-### DRY Improvements
-
-- [ ] **Port conflict handling** - Extract common `promptPortConflict(options)` function from duplicated code at lines 1509-1616 (devctl-managed vs external process handling)
-
-- [ ] **Render row abstraction** - Create shared base for `renderSidebarRow`, `renderLogRow`, `renderScanCandidateRow`, `renderScanReadmeRow`
-
-- [ ] **Question prompts** - Create reusable `promptChoice({ message, choices })` helper for interactive prompts
-
-### Configuration
-
-- [ ] **Externalize magic numbers** - Make constants configurable via `apps.json` or `devctl.config.json`:
-  ```javascript
-  const DEFAULTS = {
-    LOG_MAX_LINES: 5000,
-    MAX_ERRORS_PER_APP: 50,
-    RENDER_THROTTLE_MS: 16,
-    SHUTDOWN_TIMEOUT_MS: 10000,
-    KILL_TIMEOUT_MS: 5000,
-    AUTO_RESTART_DELAY: 3000,
-    MAX_RESTARTS: 5
-  };
-  ```
-
-### Performance & Quality
-
-- [ ] **Parallel restart** - Update `cmdRestart('all')` at line 2816 to run restarts in parallel (like `cmdStart` does)
-
-- [ ] **JSDoc types** - Add type annotations for better editor support:
-  ```javascript
-  /** @typedef {{ name: string, dir: string, command: string, ports: number[] }} AppConfig */
-  ```
-
-- [ ] **Error boundaries** - Improve error handling in functions that silently catch (e.g., `loadConfig`, `walkForPackageJsons`)
-
-- [ ] **Unit tests** - Add test coverage for:
-  - Config validation
-  - Port detection
-  - ANSI stripping/wrapping
-  - Command parsing
+- [x] **Quick Keyboard Shortcuts** - Added `s`/`S`/`r` shortcuts in sidebar mode for start/stop/restart selected app
 
 ---
 
@@ -124,12 +56,8 @@
 
 - [ ] **lsof dependency** - `getPortOwnerInfo()` uses `lsof` which may not be available on all systems. Add fallback or graceful degradation.
 
-- [ ] **PROJECT_ROOT assumption** - `PROJECT_ROOT` is set to parent of script location. May not work for all install scenarios.
-
-- [ ] **Scroll position on app switch** - Scroll position persists per-buffer but `follow` mode can be confusing when switching between apps
-
 ---
 
-## Completed
+## Performance & Quality
 
-- [x] **Quick Keyboard Shortcuts** - Added `s`/`S`/`r` shortcuts in sidebar mode for start/stop/restart selected app
+- [ ] **Unit tests** - Expand test coverage for Go packages (`internal/config`, `internal/process`, `internal/tui`)

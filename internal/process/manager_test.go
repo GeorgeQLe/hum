@@ -9,7 +9,7 @@ import (
 func TestManagerStartStop(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	err := m.Start("echo-app", "echo hello", ".")
+	err := m.Start("echo-app", "echo hello", ".", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestManagerStartStop(t *testing.T) {
 func TestManagerStartAlreadyRunning(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	err := m.Start("sleep-app", "sleep 10", ".")
+	err := m.Start("sleep-app", "sleep 10", ".", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestManagerStartAlreadyRunning(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Try to start again
-	err = m.Start("sleep-app", "sleep 10", ".")
+	err = m.Start("sleep-app", "sleep 10", ".", nil)
 	if err == nil {
 		t.Error("expected error when starting already running app")
 	}
@@ -59,7 +59,7 @@ func TestManagerStopNotRunning(t *testing.T) {
 func TestManagerRestart(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	err := m.Start("sleep-app", "sleep 10", ".")
+	err := m.Start("sleep-app", "sleep 10", ".", nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestManagerRestart(t *testing.T) {
 	}
 
 	// Restart
-	err = m.Restart("sleep-app", "sleep 10", ".")
+	err = m.Restart("sleep-app", "sleep 10", ".", nil)
 	if err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
@@ -94,8 +94,8 @@ func TestManagerRestart(t *testing.T) {
 func TestManagerStopAll(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	m.Start("app1", "sleep 10", ".")
-	m.Start("app2", "sleep 10", ".")
+	m.Start("app1", "sleep 10", ".", nil)
+	m.Start("app2", "sleep 10", ".", nil)
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -127,7 +127,7 @@ func TestManagerStatusTransitions(t *testing.T) {
 		t.Errorf("expected stopped, got %s", m.GetStatus("app"))
 	}
 
-	m.Start("app", "sleep 10", ".")
+	m.Start("app", "sleep 10", ".", nil)
 	time.Sleep(200 * time.Millisecond)
 
 	if m.GetStatus("app") != StatusRunning {
@@ -147,7 +147,7 @@ func TestManagerCrashDetection(t *testing.T) {
 	m := NewManager(t.TempDir())
 
 	// Start a command that exits with error
-	m.Start("crash-app", "exit 1", ".")
+	m.Start("crash-app", "exit 1", ".", nil)
 
 	// Wait for crash
 	time.Sleep(500 * time.Millisecond)
@@ -167,7 +167,7 @@ func TestManagerUptime(t *testing.T) {
 		t.Error("expected 0 uptime for non-existent app")
 	}
 
-	m.Start("app", "sleep 10", ".")
+	m.Start("app", "sleep 10", ".", nil)
 	defer m.Stop("app")
 	time.Sleep(200 * time.Millisecond)
 
@@ -180,7 +180,7 @@ func TestManagerUptime(t *testing.T) {
 func TestManagerRemoveEntries(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	m.Start("app", "echo done", ".")
+	m.Start("app", "echo done", ".", nil)
 	time.Sleep(300 * time.Millisecond)
 
 	// Ensure entries exist
@@ -203,7 +203,7 @@ func TestManagerGroupKill(t *testing.T) {
 	m := NewManager(t.TempDir())
 
 	// Start a shell that spawns a child
-	m.Start("parent", "sh -c 'sleep 30 & wait'", ".")
+	m.Start("parent", "sh -c 'sleep 30 & wait'", ".", nil)
 	time.Sleep(300 * time.Millisecond)
 
 	if m.GetStatus("parent") != StatusRunning {
@@ -221,7 +221,7 @@ func TestManagerGroupKill(t *testing.T) {
 func TestManagerEvents(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	m.Start("app", "echo test", ".")
+	m.Start("app", "echo test", ".", nil)
 
 	// Should receive started event
 	var gotStarted bool

@@ -268,3 +268,174 @@ func TestScanCurrentDirNoPackageJSON(t *testing.T) {
 		t.Error("expected error for missing package.json")
 	}
 }
+
+func TestSaveLoadNewFields(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	pinned := true
+	apps := []App{
+		{
+			Name:    "api",
+			Dir:     "packages/api",
+			Command: "npm run dev",
+			Ports:   []int{8080},
+			Env:     map[string]string{"NODE_ENV": "development", "DEBUG": "true"},
+			DependsOn: []string{"db"},
+			Group:   "backend",
+			HealthCheck: &HealthCheckConfig{
+				URL:      "http://localhost:8080/health",
+				Interval: 5000,
+			},
+			Pinned:   &pinned,
+			Commands: map[string]string{"dev": "npm run dev", "build": "npm run build"},
+		},
+		{
+			Name:    "db",
+			Dir:     "packages/db",
+			Command: "docker compose up",
+			Ports:   []int{5432},
+			Group:   "backend",
+		},
+	}
+
+	if err := Save(tmpDir, apps); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load(tmpDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(loaded) != 2 {
+		t.Fatalf("expected 2 apps, got %d", len(loaded))
+	}
+
+	api := loaded[0]
+	if api.Env["NODE_ENV"] != "development" {
+		t.Errorf("expected Env[NODE_ENV]=development, got %q", api.Env["NODE_ENV"])
+	}
+	if api.Env["DEBUG"] != "true" {
+		t.Errorf("expected Env[DEBUG]=true, got %q", api.Env["DEBUG"])
+	}
+	if len(api.DependsOn) != 1 || api.DependsOn[0] != "db" {
+		t.Errorf("expected DependsOn=[db], got %v", api.DependsOn)
+	}
+	if api.Group != "backend" {
+		t.Errorf("expected Group=backend, got %q", api.Group)
+	}
+	if api.HealthCheck == nil {
+		t.Fatal("expected non-nil HealthCheck")
+	}
+	if api.HealthCheck.URL != "http://localhost:8080/health" {
+		t.Errorf("expected HealthCheck.URL, got %q", api.HealthCheck.URL)
+	}
+	if api.HealthCheck.Interval != 5000 {
+		t.Errorf("expected HealthCheck.Interval=5000, got %d", api.HealthCheck.Interval)
+	}
+	if api.Pinned == nil || !*api.Pinned {
+		t.Error("expected Pinned=true")
+	}
+	if api.Commands["dev"] != "npm run dev" {
+		t.Errorf("expected Commands[dev], got %q", api.Commands["dev"])
+	}
+	if api.Commands["build"] != "npm run build" {
+		t.Errorf("expected Commands[build], got %q", api.Commands["build"])
+	}
+
+	// Second app should have no optional fields
+	db := loaded[1]
+	if len(db.Env) != 0 {
+		t.Errorf("expected empty Env for db, got %v", db.Env)
+	}
+	if db.HealthCheck != nil {
+		t.Error("expected nil HealthCheck for db")
+	}
+}
+
+func TestHasChangedNewFields(t *testing.T) {
+	base := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}}
+
+	// Env change
+	withEnv := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Env: map[string]string{"X": "1"}}
+	if !HasChanged(base, withEnv) {
+		t.Error("HasChanged() should detect env difference")
+	}
+
+	// Group change
+	withGroup := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Group: "backend"}
+	if !HasChanged(base, withGroup) {
+		t.Error("HasChanged() should detect group difference")
+	}
+
+	// DependsOn change
+	withDeps := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, DependsOn: []string{"db"}}
+	if !HasChanged(base, withDeps) {
+		t.Error("HasChanged() should detect dependsOn difference")
+	}
+
+	// Commands change
+	withCmds := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Commands: map[string]string{"dev": "npm dev"}}
+	if !HasChanged(base, withCmds) {
+		t.Error("HasChanged() should detect commands difference")
+	}
+
+	// HealthCheck change
+	withHC := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, HealthCheck: &HealthCheckConfig{URL: "http://localhost:3000/health", Interval: 5000}}
+	if !HasChanged(base, withHC) {
+		t.Error("HasChanged() should detect healthCheck difference")
+	}
+}
+
+func TestValidateDependencies(t *testing.T) {
+	// Valid deps
+	apps := []App{
+		{Name: "api", Dir: ".", Command: "npm dev", Ports: []int{8080}, DependsOn: []string{"db"}},
+		{Name: "db", Dir: ".", Command: "docker up", Ports: []int{5432}},
+	}
+	if err := ValidateDependencies(apps); err != nil {
+		t.Errorf("expected no error for valid deps, got: %v", err)
+	}
+
+	// Missing reference
+	badApps := []App{
+		{Name: "api", Dir: ".", Command: "npm dev", Ports: []int{8080}, DependsOn: []string{"missing"}},
+	}
+	if err := ValidateDependencies(badApps); err == nil {
+		t.Error("expected error for missing dependency reference")
+	}
+
+	// Self-reference
+	selfRef := []App{
+		{Name: "api", Dir: ".", Command: "npm dev", Ports: []int{8080}, DependsOn: []string{"api"}},
+	}
+	if err := ValidateDependencies(selfRef); err == nil {
+		t.Error("expected error for self-referencing dependency")
+	}
+}
+
+func TestValidateNewFields(t *testing.T) {
+	// Empty DependsOn entry
+	app := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, DependsOn: []string{""}}
+	if err := app.Validate(); err == nil {
+		t.Error("expected error for empty dependsOn entry")
+	}
+
+	// HealthCheck with empty URL
+	app2 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, HealthCheck: &HealthCheckConfig{URL: "", Interval: 5000}}
+	if err := app2.Validate(); err == nil {
+		t.Error("expected error for empty healthCheck URL")
+	}
+
+	// Commands with empty value
+	app3 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Commands: map[string]string{"dev": ""}}
+	if err := app3.Validate(); err == nil {
+		t.Error("expected error for empty command value")
+	}
+
+	// Valid HealthCheck
+	app4 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, HealthCheck: &HealthCheckConfig{URL: "http://localhost:3000/health", Interval: 5000}}
+	if err := app4.Validate(); err != nil {
+		t.Errorf("expected no error for valid healthCheck, got: %v", err)
+	}
+}
