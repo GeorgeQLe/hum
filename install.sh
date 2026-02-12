@@ -58,10 +58,26 @@ fi
 # 5. Print success message
 echo ""
 echo "Successfully installed $BINARY_NAME!"
-echo ""
-echo "Next steps:"
-echo "  source your shell profile or open a new terminal, then run:"
-echo "    $BINARY_NAME --help"
+
+# 6. Check if the binary is reachable in the current shell
+if ! command -v "$BINARY_NAME" &>/dev/null; then
+    SHELL_NAME="$(basename "$SHELL")"
+    case "$SHELL_NAME" in
+        zsh)  SOURCE_CMD="source ~/.zshrc" ;;
+        bash) SOURCE_CMD="source ~/.bashrc" ;;
+        fish) SOURCE_CMD="source ~/.config/fish/config.fish" ;;
+        *)    SOURCE_CMD="source your shell profile" ;;
+    esac
+    echo ""
+    echo "To start using $BINARY_NAME, run:"
+    echo "  $SOURCE_CMD"
+    echo ""
+    echo "Or open a new terminal, then run:"
+    echo "  $BINARY_NAME --help"
+else
+    echo ""
+    echo "Run '$BINARY_NAME --help' to get started."
+fi
 echo ""
 echo "To uninstall:"
 echo "  rm $INSTALL_DIR/$BINARY_NAME"
