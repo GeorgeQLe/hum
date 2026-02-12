@@ -2125,14 +2125,58 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 		case "restart":
 			if target == "all" {
 				for _, app := range m.apps {
-					m.procManager.Restart(app.Name, app.Command, app.Dir, app.Env)
+					m.procManager.Stop(app.Name)
+				}
+				for _, app := range m.apps {
+					for _, p := range app.Ports {
+						process.WaitForPortFree(p, 3*time.Second)
+					}
+				}
+				for _, app := range m.apps {
+					var taken []struct {
+						port  int
+						owner *process.PortOwnerInfo
+					}
+					for _, p := range app.Ports {
+						if !process.IsPortFree(p) {
+							owner := process.GetPortOwnerInfo(p)
+							taken = append(taken, struct {
+								port  int
+								owner *process.PortOwnerInfo
+							}{p, owner})
+						}
+					}
+					if len(taken) > 0 {
+						return portConflictMsg{appName: app.Name, conflicts: taken}
+					}
+					m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
 				}
 			} else {
 				app := m.findApp(target)
 				if app == nil {
 					m.systemLog(fmt.Sprintf("Unknown app: %s", target))
 				} else {
-					m.procManager.Restart(app.Name, app.Command, app.Dir, app.Env)
+					m.procManager.Stop(app.Name)
+					for _, p := range app.Ports {
+						process.WaitForPortFree(p, 3*time.Second)
+					}
+					var taken []struct {
+						port  int
+						owner *process.PortOwnerInfo
+					}
+					for _, p := range app.Ports {
+						if !process.IsPortFree(p) {
+							owner := process.GetPortOwnerInfo(p)
+							taken = append(taken, struct {
+								port  int
+								owner *process.PortOwnerInfo
+							}{p, owner})
+						}
+					}
+					if len(taken) > 0 {
+						return portConflictMsg{appName: app.Name, conflicts: taken}
+					}
+					m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
 				}
 			}
 		}
