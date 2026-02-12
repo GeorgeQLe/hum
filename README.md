@@ -109,6 +109,7 @@ Commands accept `@group` targets (e.g., `start @frontend`, `stop @backend`).
 | `r`              | Restart selected app          |
 | `R`              | Restart all running apps      |
 | `p`              | Toggle pin on selected app    |
+| `x`              | Toggle errors-only log view   |
 | `e`              | Copy last error to clipboard  |
 | `E`              | Copy all errors to clipboard  |
 | `Enter`          | Switch to command line        |
@@ -122,6 +123,7 @@ Commands accept `@group` targets (e.g., `start @frontend`, `stop @backend`).
 | `Ctrl+F`      | Enter log search mode          |
 | `f`           | Toggle filter mode             |
 | `t`           | Toggle timestamps on log lines |
+| `x`           | Toggle errors-only log view    |
 | `e`           | Copy last error to clipboard   |
 | `E`           | Copy all errors to clipboard   |
 | `Up/Down`     | Navigate command history       |

@@ -34,6 +34,14 @@ type ErrorBuffer struct {
 	Errors []CapturedError
 }
 
+// redAnsiRe matches ANSI escape codes for red (31) and bright red (91) foreground.
+var redAnsiRe = regexp.MustCompile(`\x1b\[[0-9;]*(31|91)m`)
+
+// IsErrorLine returns true if a line matches error patterns or contains red ANSI coloring.
+func IsErrorLine(line string) bool {
+	return MatchesErrorPattern(line) || redAnsiRe.MatchString(line)
+}
+
 // MatchesErrorPattern checks if a line matches any error pattern.
 func MatchesErrorPattern(line string) bool {
 	stripped := StripAnsi(line)

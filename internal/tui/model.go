@@ -68,6 +68,9 @@ type Model struct {
 	// Timestamps
 	showTimestamps bool
 
+	// Errors-only view
+	errorsOnly bool
+
 	// Question mode
 	questionMode *QuestionMode
 
@@ -339,7 +342,7 @@ func (m Model) View() string {
 		bufName := m.getSelectedBufName()
 		logBuf := m.procManager.GetLogBuffer(bufName)
 		contentWidth := m.logWidth - 1 // -1 for leading space
-		m.visibleLines = computeVisualLines(logBuf, logBuf.ScrollPos, m.logViewHeight(), contentWidth, m.filterMode)
+		m.visibleLines = computeVisualLines(logBuf, logBuf.ScrollPos, m.logViewHeight(), contentWidth, m.filterMode, m.errorsOnly)
 	} else {
 		m.visibleLines = nil
 	}
@@ -508,6 +511,9 @@ func (m *Model) renderCmdContent(width int) string {
 	if m.filterMode != nil && m.filterMode.pattern != "" {
 		filterIndicator = styleDim.Render(" [filter: "+m.filterMode.pattern+"]")
 	}
+	if m.errorsOnly {
+		filterIndicator += styleDim.Render(" [errors only]")
+	}
 
 	var prompt string
 	if m.focusArea == focusCommand {
@@ -552,13 +558,13 @@ func (m *Model) getHints() string {
 	}
 
 	if m.focusArea == focusSidebar {
-		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | ^J/K: scroll | ^B: sidebar | ^C: quit"
+		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | x: errors | ^J/K: scroll | ^B: sidebar | ^C: quit"
 		if hasErrors {
 			hint = "e: copy error | E: copy all | " + hint
 		}
 		return hint
 	}
-	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | up/down: history | ^J/K: scroll | ^B: sidebar | ^C: quit"
+	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | x: errors | up/down: history | ^J/K: scroll | ^B: sidebar | ^C: quit"
 	if hasErrors {
 		hint = "e: copy error | E: copy all | " + hint
 	}
@@ -679,6 +685,15 @@ func (m Model) handleSidebarKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.systemLog(fmt.Sprintf("Unpinned %s", app.Name))
 			}
+		}
+		return m, nil
+
+	case isRune(msg, 'x'):
+		m.errorsOnly = !m.errorsOnly
+		if m.errorsOnly {
+			m.systemLog("Errors-only view enabled")
+		} else {
+			m.systemLog("Errors-only view disabled")
 		}
 		return m, nil
 
@@ -813,6 +828,17 @@ func (m Model) handleCommandKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.systemLog("Timestamps enabled")
 		} else {
 			m.systemLog("Timestamps disabled")
+		}
+		return m, nil
+	}
+
+	// "x": toggle errors-only view (when input is empty)
+	if isRune(msg, 'x') && m.cmdInput == "" {
+		m.errorsOnly = !m.errorsOnly
+		if m.errorsOnly {
+			m.systemLog("Errors-only view enabled")
+		} else {
+			m.systemLog("Errors-only view disabled")
 		}
 		return m, nil
 	}
@@ -1435,7 +1461,7 @@ func (m *Model) showHelp() {
 	m.systemLog("")
 	m.systemLog("Tab: toggle sidebar/command  up/down/j/k: navigate  PgUp/PgDn: scroll")
 	m.systemLog("Ctrl+J/K: scroll line  Ctrl+B: toggle sidebar")
-	m.systemLog("/: search  t: timestamps  e/E: copy errors  s/S/r: start/stop/restart  ^C: quit")
+	m.systemLog("/: search  t: timestamps  x: errors only  e/E: copy errors  s/S/r: start/stop/restart  ^C: quit")
 }
 
 func (m *Model) maybeAutoRestart(appName string) tea.Cmd {
