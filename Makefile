@@ -1,4 +1,4 @@
-.PHONY: build run test clean install
+.PHONY: build run test clean install install-skill
 
 build:
 	go build -o devctl .
@@ -14,3 +14,6 @@ clean:
 
 install:
 	bash install.sh
+
+install-skill:
+	bash install-skill.sh

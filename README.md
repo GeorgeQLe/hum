@@ -34,6 +34,16 @@ go build -o devctl .
 
 **Uninstall:** `rm ~/.local/bin/devctl`
 
+## Claude Code Integration
+
+To install devctl as a Claude Code skill:
+
+```sh
+bash install-skill.sh
+```
+
+This creates a skill at `~/.claude/skills/devctl/SKILL.md`. Use `--agents-md` to also generate an `AGENTS.md` file in the current directory.
+
 ## Usage
 
 ```sh
