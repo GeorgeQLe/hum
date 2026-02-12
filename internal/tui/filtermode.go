@@ -24,11 +24,9 @@ func (fm *FilterMode) compile() {
 		fm.regex = nil
 		return
 	}
-	re, err := regexp.Compile("(?i)" + fm.pattern)
-	if err != nil {
-		escaped := regexp.QuoteMeta(fm.pattern)
-		re, _ = regexp.Compile("(?i)" + escaped)
-	}
+	// Always escape user input to prevent ReDoS from pathological patterns.
+	escaped := regexp.QuoteMeta(fm.pattern)
+	re, _ := regexp.Compile("(?i)" + escaped)
 	fm.regex = re
 }
 

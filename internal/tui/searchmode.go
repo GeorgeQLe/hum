@@ -37,12 +37,10 @@ func (sm *SearchMode) updateMatches(logBuf *process.LogBuffer) {
 		return
 	}
 
-	// Try to compile as regex, fall back to literal
-	re, err := regexp.Compile("(?i)" + sm.pattern)
-	if err != nil {
-		escaped := regexp.QuoteMeta(sm.pattern)
-		re, _ = regexp.Compile("(?i)" + escaped)
-	}
+	// Always escape user input to prevent ReDoS from pathological patterns.
+	// This gives safe substring matching while remaining fast on any input.
+	escaped := regexp.QuoteMeta(sm.pattern)
+	re, _ := regexp.Compile("(?i)" + escaped)
 	sm.regex = re
 
 	if re == nil {

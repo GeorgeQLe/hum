@@ -55,7 +55,7 @@ func (m *Model) complete(input string) (matches []string, partial string) {
 
 	if commandsWithName[cmd] {
 		// For "run", if we already have an app name, complete command types
-		if cmd == "run" && len(parts) >= 3 || (cmd == "run" && len(parts) == 2 && hasTrailingSpace) {
+		if cmd == "run" && (len(parts) >= 3 || (len(parts) == 2 && hasTrailingSpace)) && len(parts) >= 2 {
 			appName := parts[1]
 			app := m.findApp(appName)
 			if app != nil && len(app.Commands) > 0 {

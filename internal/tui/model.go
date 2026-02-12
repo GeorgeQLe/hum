@@ -1598,9 +1598,9 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 				if conflictApp != nil {
 					m.procManager.Restart(devctlApp, conflictApp.Command, conflictApp.Dir, conflictApp.Env)
 				}
-				// Verify port is freed before starting (B7)
 				if !process.WaitForPortFree(conflict.port, 2*time.Second) {
-					m.systemLog(fmt.Sprintf("Warning: port %d still in use after restart", conflict.port))
+					m.systemLog(fmt.Sprintf("Port %d still in use after restart — start aborted.", conflict.port))
+					return
 				}
 				m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
 			case "a":
@@ -1626,9 +1626,9 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 			switch strings.ToLower(answer) {
 			case "k":
 				process.KillExternalProcess(conflict.owner.PID)
-				// Verify port is freed after kill (B7)
 				if !process.WaitForPortFree(conflict.port, 2*time.Second) {
-					m.systemLog(fmt.Sprintf("Warning: port %d still in use after killing PID %d", conflict.port, conflict.owner.PID))
+					m.systemLog(fmt.Sprintf("Port %d still in use after killing PID %d — start aborted.", conflict.port, conflict.owner.PID))
+					return
 				}
 				m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
 			case "a":
@@ -2239,8 +2239,8 @@ func (m Model) restoreSessionCmd() tea.Cmd {
 		}
 
 		restored := 0
+		var skippedConflicts []string
 		for _, app := range sorted {
-			// Check ports before starting, same as normal start (B3)
 			hasConflict := false
 			for _, p := range app.Ports {
 				if !process.IsPortFree(p) {
@@ -2256,11 +2256,14 @@ func (m Model) restoreSessionCmd() tea.Cmd {
 				}
 			}
 			if hasConflict {
-				m.systemLog(fmt.Sprintf("Skipped %s due to port conflict (use 'start %s' to resolve)", app.Name, app.Name))
+				skippedConflicts = append(skippedConflicts, app.Name)
 				continue
 			}
 			m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
 			restored++
+		}
+		if len(skippedConflicts) > 0 {
+			m.systemLog(fmt.Sprintf("Port conflicts during restore: %s — use 'start <name>' to resolve individually", strings.Join(skippedConflicts, ", ")))
 		}
 
 		state.ClearSession(m.projectRoot)
@@ -2286,7 +2289,7 @@ func (m *Model) processEvent(evt process.ProcessEvent) tea.Cmd {
 
 	// Register/unregister health checks
 	if evt.Type == process.EventStarted {
-		if app := m.findApp(evt.AppName); app != nil && app.HealthCheck != nil {
+		if app := m.findApp(evt.AppName); app != nil && app.HealthCheck != nil && app.HealthCheck.URL != "" {
 			m.healthChecker.Register(app.Name, app.HealthCheck.URL, app.HealthCheck.Interval)
 		}
 	}

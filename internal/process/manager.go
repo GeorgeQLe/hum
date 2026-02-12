@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -246,6 +247,20 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 
 	// Wait for process exit in background
 	go func() {
+		// Ensure doneCh is always closed so Stop() never hangs.
+		defer func() {
+			if r := recover(); r != nil {
+				entry.mu.Lock()
+				if entry.Status == StatusRunning || entry.Status == StatusStopping {
+					entry.Status = StatusCrashed
+				}
+				entry.Cmd = nil
+				entry.mu.Unlock()
+				fmt.Fprintf(os.Stderr, "devctl: panic in process wait goroutine for %s: %v\n", name, r)
+			}
+			close(entry.doneCh)
+		}()
+
 		err := cmd.Wait()
 		entry.mu.Lock()
 		wasStopping := entry.Status == StatusStopping
@@ -260,7 +275,6 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 		}
 		entry.Cmd = nil
 		entry.mu.Unlock()
-		close(entry.doneCh)
 
 		if wasStopping {
 			buf := m.GetLogBuffer(name)
@@ -449,7 +463,10 @@ func (m *Manager) FindDevctlOwner(pid int) string {
 // KillExternalProcess sends SIGTERM then SIGKILL to an external process
 // and its process group to clean up child processes.
 func KillExternalProcess(pid int) error {
-	// Try to kill the entire process group first (D8)
+	// Snapshot the command name before killing so we can verify PID identity later.
+	origCmd := getProcessCommand(pid)
+
+	// Try to kill the entire process group first
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
 		// Not a group leader or permission denied — fall back to single PID
 		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
@@ -465,12 +482,32 @@ func KillExternalProcess(pid int) error {
 		}
 	}
 
+	// Before sending SIGKILL, verify the PID still belongs to the same process.
+	// Between our last check and now, the process could have exited and the PID
+	// could have been reused by an unrelated process.
+	if origCmd != "" {
+		currentCmd := getProcessCommand(pid)
+		if currentCmd != origCmd {
+			// PID was reused by a different process — do not kill it.
+			return nil
+		}
+	}
+
 	// Force kill process group, then single PID as fallback
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 	time.Sleep(500 * time.Millisecond)
 	return nil
+}
+
+// getProcessCommand returns the command name for a PID using ps, or "" on failure.
+func getProcessCommand(pid int) string {
+	out, err := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "comm=").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (m *Manager) readOutput(name string, r interface{ Read([]byte) (int, error) }, isStderr bool) {
@@ -516,6 +553,36 @@ func (m *Manager) sendEvent(evt ProcessEvent) {
 	select {
 	case m.eventCh <- evt:
 	default:
-		// Drop if buffer full
+		// Channel full — use a short timeout so critical events (crashes, errors)
+		// have a better chance of being delivered.
+		if evt.Type == EventCrashed || evt.Type == EventErrorDetected || evt.Type == EventError {
+			select {
+			case m.eventCh <- evt:
+			case <-time.After(100 * time.Millisecond):
+				// Truly full; log to stderr as last resort
+				fmt.Fprintf(os.Stderr, "devctl: event channel full, dropped %s event for %s\n", eventTypeName(evt.Type), evt.AppName)
+			}
+		}
+	}
+}
+
+func eventTypeName(t EventType) string {
+	switch t {
+	case EventStarted:
+		return "started"
+	case EventStopped:
+		return "stopped"
+	case EventCrashed:
+		return "crashed"
+	case EventOutput:
+		return "output"
+	case EventStderrOutput:
+		return "stderr"
+	case EventError:
+		return "error"
+	case EventErrorDetected:
+		return "error-detected"
+	default:
+		return "unknown"
 	}
 }

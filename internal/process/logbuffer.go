@@ -61,13 +61,18 @@ func (b *LogBuffer) Append(text string, isStderr bool) []int {
 	// Trim to max
 	if len(b.Lines) > MaxLogLines {
 		excess := len(b.Lines) - MaxLogLines
-		// Copy to new slice to release old backing array memory (D10)
+		// Copy to new slice to release old backing array memory
 		newLines := make([]LogLine, MaxLogLines)
 		copy(newLines, b.Lines[excess:])
 		b.Lines = newLines
 		b.ScrollPos -= excess
 		if b.ScrollPos < 0 {
 			b.ScrollPos = 0
+		}
+		// Clamp to valid max to prevent out-of-bounds after trim
+		maxScroll := len(b.Lines)
+		if b.ScrollPos > maxScroll {
+			b.ScrollPos = maxScroll
 		}
 		// Adjust returned indices to account for trimmed lines (A1)
 		for i := range indices {

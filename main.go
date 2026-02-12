@@ -118,6 +118,8 @@ func runTUI(startAll, restore bool) error {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		<-sigCh
+		// Recover in case the program is already shutting down
+		defer func() { recover() }()
 		p.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	}()
 
