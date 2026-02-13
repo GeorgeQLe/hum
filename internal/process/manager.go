@@ -104,22 +104,24 @@ const (
 
 // Manager handles spawning, stopping, and monitoring processes.
 type Manager struct {
-	ProjectRoot  string
-	Entries      map[string]*Entry
-	LogBuffers   map[string]*LogBuffer
-	ErrorBuffers map[string]*ErrorBuffer
-	mu           sync.Mutex
-	eventCh      chan ProcessEvent
+	ProjectRoot   string
+	Entries       map[string]*Entry
+	LogBuffers    map[string]*LogBuffer
+	ErrorBuffers  map[string]*ErrorBuffer
+	ErrorDetector *ErrorDetector
+	mu            sync.Mutex
+	eventCh       chan ProcessEvent
 }
 
 // NewManager creates a new process manager.
 func NewManager(projectRoot string) *Manager {
 	return &Manager{
-		ProjectRoot:  projectRoot,
-		Entries:      make(map[string]*Entry),
-		LogBuffers:   make(map[string]*LogBuffer),
-		ErrorBuffers: make(map[string]*ErrorBuffer),
-		eventCh:      make(chan ProcessEvent, eventChannelSize),
+		ProjectRoot:   projectRoot,
+		Entries:       make(map[string]*Entry),
+		LogBuffers:    make(map[string]*LogBuffer),
+		ErrorBuffers:  make(map[string]*ErrorBuffer),
+		ErrorDetector: NewErrorDetector(),
+		eventCh:       make(chan ProcessEvent, eventChannelSize),
 	}
 }
 
@@ -531,9 +533,9 @@ func (m *Manager) readOutput(name string, r interface{ Read([]byte) (int, error)
 				Message: text,
 			})
 
-			// Check new lines for error patterns
+			// Check new lines for error patterns using the detector
 			for _, idx := range indices {
-				if line, ok := logBuf.GetLine(idx); ok && MatchesErrorPattern(line.Text) {
+				if line, ok := logBuf.GetLine(idx); ok && m.ErrorDetector.IsError(line.Text) {
 					errBuf.CaptureError(logBuf, idx)
 					m.sendEvent(ProcessEvent{
 						AppName: name,

@@ -59,13 +59,13 @@ func TestErrorBufferMax(t *testing.T) {
 	eb := &ErrorBuffer{}
 	logBuf := NewLogBuffer()
 
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 120; i++ {
 		logBuf.Append("Error: test error", false)
 		eb.CaptureError(logBuf, logBuf.LineCount()-1)
 	}
 
-	if eb.Count() > 50 {
-		t.Errorf("expected max 50 errors, got %d", eb.Count())
+	if eb.Count() > maxStoredErrors {
+		t.Errorf("expected max %d errors, got %d", maxStoredErrors, eb.Count())
 	}
 }
 

@@ -68,8 +68,8 @@ type Model struct {
 	// Timestamps
 	showTimestamps bool
 
-	// Errors-only view
-	errorsOnly bool
+	// Error stream overlay
+	errorStream *ErrorStreamMode
 
 	// Question mode
 	questionMode *QuestionMode
@@ -338,11 +338,11 @@ func (m Model) View() string {
 	}
 
 	// Pre-compute wrapped visual lines for the log pane (B1)
-	if m.scanMode == nil && m.topMode == nil {
+	if m.scanMode == nil && m.topMode == nil && m.errorStream == nil {
 		bufName := m.getSelectedBufName()
 		logBuf := m.procManager.GetLogBuffer(bufName)
 		contentWidth := m.logWidth - 1 // -1 for leading space
-		m.visibleLines = computeVisualLines(logBuf, logBuf.ScrollPos, m.logViewHeight(), contentWidth, m.filterMode, m.errorsOnly)
+		m.visibleLines = computeVisualLines(logBuf, logBuf.ScrollPos, m.logViewHeight(), contentWidth, m.filterMode)
 	} else {
 		m.visibleLines = nil
 	}
@@ -362,7 +362,12 @@ func (m Model) View() string {
 	mainHeight := m.mainHeight()
 	for r := 0; r < mainHeight; r++ {
 		if m.sidebarHidden {
-			lg := renderLogRow(&m, r, m.logWidth)
+			var lg string
+			if m.errorStream != nil {
+				lg = renderErrorStreamRow(&m, r, m.logWidth)
+			} else {
+				lg = renderLogRow(&m, r, m.logWidth)
+			}
 			buf.WriteString(boxV + lg + boxV + "\n")
 		} else {
 			var sb, lg string
@@ -374,7 +379,11 @@ func (m Model) View() string {
 				lg = renderScanReadmeRow(&m, r, m.logWidth)
 			} else {
 				sb = renderSidebar(&m, r, m.sidebarWidth)
-				lg = renderLogRow(&m, r, m.logWidth)
+				if m.errorStream != nil {
+					lg = renderErrorStreamRow(&m, r, m.logWidth)
+				} else {
+					lg = renderLogRow(&m, r, m.logWidth)
+				}
 			}
 			buf.WriteString(boxV + sb + boxV + lg + boxV + "\n")
 		}
@@ -511,8 +520,8 @@ func (m *Model) renderCmdContent(width int) string {
 	if m.filterMode != nil && m.filterMode.pattern != "" {
 		filterIndicator = styleDim.Render(" [filter: "+m.filterMode.pattern+"]")
 	}
-	if m.errorsOnly {
-		filterIndicator += styleDim.Render(" [errors only]")
+	if m.errorStream != nil {
+		filterIndicator += styleDim.Render(" [error stream]")
 	}
 
 	var prompt string
@@ -528,6 +537,10 @@ func (m *Model) getHints() string {
 	// Show time-limited notification if active
 	if m.notification != "" && time.Now().Before(m.notificationEnd) {
 		return m.notification
+	}
+
+	if m.errorStream != nil {
+		return "x/Esc: back | Enter: expand | e: copy | m: msg | l: loc | j/k: nav | c: clear"
 	}
 
 	if m.topMode != nil {
@@ -558,13 +571,13 @@ func (m *Model) getHints() string {
 	}
 
 	if m.focusArea == focusSidebar {
-		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | x: errors | ^J/K: scroll | ^B: sidebar | ^C: quit"
+		hint := "Tab: command | up/down/jk: nav | s/S/r: start/stop/restart | R: all | p: pin | x: error stream | ^J/K: scroll | ^B: sidebar | ^C: quit"
 		if hasErrors {
 			hint = "e: copy error | E: copy all | " + hint
 		}
 		return hint
 	}
-	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | x: errors | up/down: history | ^J/K: scroll | ^B: sidebar | ^C: quit"
+	hint := "Tab: sidebar | /: search | f: filter | t: timestamps | x: error stream | up/down: history | ^J/K: scroll | ^B: sidebar | ^C: quit"
 	if hasErrors {
 		hint = "e: copy error | E: copy all | " + hint
 	}
@@ -576,6 +589,11 @@ func (m Model) handleKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Ctrl+C → quit
 	if isCtrl(msg, "c") {
 		return m.handleQuit()
+	}
+
+	// Error stream mode
+	if m.errorStream != nil {
+		return m.handleErrorStreamKeypress(msg)
 	}
 
 	// Top mode
@@ -689,12 +707,8 @@ func (m Model) handleSidebarKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case isRune(msg, 'x'):
-		m.errorsOnly = !m.errorsOnly
-		if m.errorsOnly {
-			m.systemLog("Errors-only view enabled")
-		} else {
-			m.systemLog("Errors-only view disabled")
-		}
+		allApps := m.selectedIdx == 0
+		m.errorStream = newErrorStreamMode(allApps)
 		return m, nil
 
 	case isRune(msg, 'e'):
@@ -832,14 +846,10 @@ func (m Model) handleCommandKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// "x": toggle errors-only view (when input is empty)
+	// "x": open error stream (when input is empty)
 	if isRune(msg, 'x') && m.cmdInput == "" {
-		m.errorsOnly = !m.errorsOnly
-		if m.errorsOnly {
-			m.systemLog("Errors-only view enabled")
-		} else {
-			m.systemLog("Errors-only view disabled")
-		}
+		allApps := m.selectedIdx == 0
+		m.errorStream = newErrorStreamMode(allApps)
 		return m, nil
 	}
 
@@ -1461,7 +1471,7 @@ func (m *Model) showHelp() {
 	m.systemLog("")
 	m.systemLog("Tab: toggle sidebar/command  up/down/j/k: navigate  PgUp/PgDn: scroll")
 	m.systemLog("Ctrl+J/K: scroll line  Ctrl+B: toggle sidebar")
-	m.systemLog("/: search  t: timestamps  x: errors only  e/E: copy errors  s/S/r: start/stop/restart  ^C: quit")
+	m.systemLog("/: search  t: timestamps  x: error stream  e/E: copy errors  s/S/r: start/stop/restart  ^C: quit")
 }
 
 func (m *Model) maybeAutoRestart(appName string) tea.Cmd {
@@ -2313,8 +2323,17 @@ func (m *Model) processEvent(evt process.ProcessEvent) tea.Cmd {
 	}
 
 	if evt.Type == process.EventErrorDetected {
-		m.notification = "Error detected! [e] copy"
-		m.notificationEnd = time.Now().Add(notifyDuration)
+		if m.errorStream == nil {
+			m.notification = "Error detected! [x] view"
+			m.notificationEnd = time.Now().Add(notifyDuration)
+		}
+		// If error stream is open and following, scroll to show new errors
+		if m.errorStream != nil && m.errorStream.follow {
+			entries := m.buildErrorEntries()
+			if len(entries) > 0 {
+				m.errorStream.cursor = len(entries) - 1
+			}
+		}
 		return tea.Batch(
 			m.listenForProcessEvents(),
 			tea.Tick(notifyDuration, func(time.Time) tea.Msg { return clearNotificationMsg{} }),

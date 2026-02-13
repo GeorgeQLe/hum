@@ -21,8 +21,7 @@ type visualLine struct {
 
 // computeVisualLines pre-computes the wrapped lines visible in the current view.
 // If filter is non-nil, only lines matching the filter are included.
-// If errorsOnly is true, only error lines (pattern match or red ANSI) are included.
-func computeVisualLines(logBuf *process.LogBuffer, scrollPos, viewHeight, contentWidth int, filter *FilterMode, errorsOnly bool) []visualLine {
+func computeVisualLines(logBuf *process.LogBuffer, scrollPos, viewHeight, contentWidth int, filter *FilterMode) []visualLine {
 	lines, _, _ := logBuf.Snapshot()
 	var result []visualLine
 
@@ -33,11 +32,6 @@ func computeVisualLines(logBuf *process.LogBuffer, scrollPos, viewHeight, conten
 			if !filter.regex.MatchString(stripped) {
 				continue
 			}
-		}
-
-		// Apply errors-only filter
-		if errorsOnly && !process.IsErrorLine(lines[i].Text) {
-			continue
 		}
 
 		wrapped := wrapLine(lines[i].Text, contentWidth)
@@ -146,10 +140,6 @@ func renderLogRow(m *Model, rowIdx, width int) string {
 				errStr += "s"
 			}
 			header += "  " + styleError.Render(errStr)
-		}
-		// Append errors-only indicator
-		if m.errorsOnly {
-			header += "  " + styleError.Render("[errors]")
 		}
 		return padRight(header, width)
 	}
