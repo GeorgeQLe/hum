@@ -74,15 +74,23 @@ func (l *Logger) Read() ([]Entry, error) {
 	}
 
 	var entries []Entry
+	var parseErrors []error
+	lineNum := 0
 	for _, line := range splitLines(data) {
+		lineNum++
 		if len(line) == 0 {
 			continue
 		}
 		var entry Entry
 		if err := json.Unmarshal(line, &entry); err != nil {
-			continue // Skip malformed entries
+			parseErrors = append(parseErrors, fmt.Errorf("line %d: %w", lineNum, err))
+			continue
 		}
 		entries = append(entries, entry)
+	}
+
+	if len(parseErrors) > 0 {
+		return entries, fmt.Errorf("encountered %d parse errors (first: %v)", len(parseErrors), parseErrors[0])
 	}
 
 	return entries, nil

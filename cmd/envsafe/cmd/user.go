@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -64,8 +66,15 @@ func UserCmd() *cobra.Command {
 				return err
 			}
 
+			// Write private key to file with restrictive permissions instead of printing to stdout
+			keyFile := filepath.Join(vault.VaultPath(projectRoot), fmt.Sprintf("%s.key", email))
+			if err := os.WriteFile(keyFile, []byte(kp.PrivateKeyBase64()+"\n"), 0600); err != nil {
+				return fmt.Errorf("writing private key file: %w", err)
+			}
+
 			fmt.Printf("Added %s as a team member (role: developer).\n", email)
-			fmt.Printf("Private key (share securely with user):\n  %s\n", kp.PrivateKeyBase64())
+			fmt.Printf("Private key written to: %s\n", keyFile)
+			fmt.Printf("Share this file securely with the user, then delete it.\n")
 			fmt.Printf("Public key stored in vault config.\n")
 
 			return nil
@@ -106,6 +115,17 @@ func UserCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email := args[0]
+
+			force, _ := cmd.Flags().GetBool("force")
+			if !force {
+				fmt.Fprintf(os.Stderr, "Remove user %s from team? [y/N] ", email)
+				reader := bufio.NewReader(os.Stdin)
+				answer, _ := reader.ReadString('\n')
+				if strings.TrimSpace(strings.ToLower(answer)) != "y" {
+					fmt.Println("Cancelled.")
+					return nil
+				}
+			}
 
 			projectRoot, err := findProjectRoot()
 			if err != nil {
@@ -194,6 +214,8 @@ func UserCmd() *cobra.Command {
 		},
 	}
 
+	removeCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+
 	cmd.AddCommand(addCmd, listCmd, removeCmd, roleCmd)
 	return cmd
 }
@@ -216,5 +238,5 @@ func saveTeamConfig(projectRoot string, tc *sharing.TeamConfig) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(teamConfigPath(projectRoot), data, 0644)
+	return os.WriteFile(teamConfigPath(projectRoot), data, 0600)
 }

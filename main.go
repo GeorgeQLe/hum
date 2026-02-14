@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/georgele/devctl/internal/config"
+	"github.com/georgele/devctl/internal/dev"
 	"github.com/georgele/devctl/internal/ipc"
 	"github.com/georgele/devctl/internal/tui"
 )
@@ -88,7 +89,15 @@ func main() {
 	statsCmd.Flags().BoolVar(&statsWatch, "watch", false, "Continuously update every 2s")
 	statsCmd.Flags().BoolVar(&statsJSON, "json", false, "Output as JSON")
 
-	rootCmd.AddCommand(pingCmd, statusCmd, addCmd, statsCmd)
+	devCmd := &cobra.Command{
+		Use:   "dev",
+		Short: "Development mode with auto-rebuild on source changes",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return dev.New(".").Run()
+		},
+	}
+
+	rootCmd.AddCommand(pingCmd, statusCmd, addCmd, statsCmd, devCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -116,12 +125,27 @@ func runTUI(startAll, restore bool) error {
 	// Handle SIGTERM/SIGHUP — forward to Bubble Tea as an interrupt
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
+
+	// Handle SIGUSR1 — dev reload (graceful restart without killing managed apps)
+	devReloadCh := make(chan os.Signal, 1)
+	signal.Notify(devReloadCh, syscall.SIGUSR1)
+	defer signal.Stop(devReloadCh)
+
+	done := make(chan struct{})
 	go func() {
-		<-sigCh
-		// Recover in case the program is already shutting down
-		defer func() { recover() }()
-		p.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		select {
+		case <-sigCh:
+			defer func() { recover() }()
+			p.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		case <-devReloadCh:
+			defer func() { recover() }()
+			p.Send(tui.DevReloadMsg{})
+		case <-done:
+			return
+		}
 	}()
+	defer close(done)
 
 	// Panic recovery to restore terminal state
 	defer func() {
@@ -279,8 +303,14 @@ func runAdd(dir, nameFlag, commandFlag, portsFlag string, autoStart bool) error 
 		"ports":   ports,
 	}
 
-	appJSON, _ := json.Marshal(entry)
-	cwd, _ := os.Getwd()
+	appJSON, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("marshaling app entry: %w", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
 
 	client := ipc.NewClient(projectRoot)
 	resp, err := client.AddApp(appJSON, cwd, autoStart)

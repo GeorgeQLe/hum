@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_NAME="devctl"
 

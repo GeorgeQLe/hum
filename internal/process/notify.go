@@ -3,6 +3,7 @@ package process
 import (
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // SendNotification sends a desktop notification.
@@ -20,13 +21,16 @@ func SendNotification(title, message string) error {
 }
 
 func escapeAppleScript(s string) string {
-	// Escape backslashes and double quotes for AppleScript strings
-	var result []byte
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' || s[i] == '"' {
-			result = append(result, '\\')
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	// Strip other control characters
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 32 || r == '\t' {
+			b.WriteRune(r)
 		}
-		result = append(result, s[i])
 	}
-	return string(result)
+	return b.String()
 }

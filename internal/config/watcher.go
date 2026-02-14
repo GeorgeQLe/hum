@@ -9,12 +9,12 @@ import (
 
 // Watcher watches apps.json for changes and notifies via a channel.
 type Watcher struct {
-	watcher    *fsnotify.Watcher
-	changeCh   chan struct{}
-	ignoreNext bool
-	mu         sync.Mutex
-	stopCh     chan struct{}
-	stopOnce   sync.Once
+	watcher     *fsnotify.Watcher
+	changeCh    chan struct{}
+	lastWriteAt time.Time
+	mu          sync.Mutex
+	stopCh      chan struct{}
+	stopOnce    sync.Once
 }
 
 // NewWatcher creates a new config file watcher.
@@ -43,11 +43,12 @@ func (w *Watcher) Changes() <-chan struct{} {
 	return w.changeCh
 }
 
-// SetIgnoreNext sets a flag to ignore the next change event.
+// SetIgnoreNext marks the current time so that file change events
+// within the debounce window are ignored.
 func (w *Watcher) SetIgnoreNext() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.ignoreNext = true
+	w.lastWriteAt = time.Now()
 }
 
 // Start begins watching for changes in a background goroutine.
@@ -72,14 +73,11 @@ func (w *Watcher) Start() {
 				}
 
 				w.mu.Lock()
-				shouldIgnore := w.ignoreNext
-				if shouldIgnore {
-					w.ignoreNext = false
-				}
+				shouldIgnore := time.Since(w.lastWriteAt) < 2*time.Second
 				w.mu.Unlock()
 
 				if shouldIgnore {
-					continue
+					continue // ignore self-triggered change
 				}
 
 				// Debounce: 100ms

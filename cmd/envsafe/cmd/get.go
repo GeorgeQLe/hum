@@ -17,6 +17,13 @@ func GetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 
+			if err := validateName(env, "environment"); err != nil {
+				return err
+			}
+			if err := validateName(key, "key"); err != nil {
+				return err
+			}
+
 			projectRoot, err := findProjectRoot()
 			if err != nil {
 				return err

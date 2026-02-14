@@ -56,7 +56,8 @@ func TopologicalSort(apps []App) ([]App, error) {
 // DependencyOrder returns the list of app names that must be started
 // before the target app, in the order they should be started.
 // The target itself is not included.
-func DependencyOrder(apps []App, target string) []string {
+// Returns an error if a dependency cycle is detected.
+func DependencyOrder(apps []App, target string) ([]string, error) {
 	nameToApp := make(map[string]App, len(apps))
 	for _, app := range apps {
 		nameToApp[app.Name] = app
@@ -80,7 +81,7 @@ func DependencyOrder(apps []App, target string) []string {
 	collect(target)
 
 	if len(visited) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Filter apps to just the dependencies and sort them
@@ -93,17 +94,12 @@ func DependencyOrder(apps []App, target string) []string {
 
 	sorted, err := TopologicalSort(depApps)
 	if err != nil {
-		// If there's a cycle, return them in original order
-		var names []string
-		for _, a := range depApps {
-			names = append(names, a.Name)
-		}
-		return names
+		return nil, fmt.Errorf("dependency cycle detected for %q: %w", target, err)
 	}
 
 	var names []string
 	for _, a := range sorted {
 		names = append(names, a.Name)
 	}
-	return names
+	return names, nil
 }

@@ -54,6 +54,7 @@ type Model struct {
 	currentEnv  string
 	secrets     []string
 	secretIdx   int
+	listErr     error
 
 	// Secret detail
 	currentKey  string
@@ -180,6 +181,11 @@ func (m *Model) viewSecrets() string {
 	var b strings.Builder
 	b.WriteString(styleBold.Render("Secrets — "+m.currentEnv) + "\n\n")
 
+	if m.listErr != nil {
+		b.WriteString(fmt.Sprintf("  Error: %v\n", m.listErr))
+		return b.String()
+	}
+
 	if len(m.secrets) == 0 {
 		b.WriteString(styleDim.Render("  (no secrets)") + "\n")
 		return b.String()
@@ -267,8 +273,14 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	case ViewEnvironments:
 		if len(m.environments) > 0 {
 			m.currentEnv = m.environments[m.envIdx]
-			keys, _ := m.vault.List(m.currentEnv)
-			m.secrets = keys
+			keys, err := m.vault.List(m.currentEnv)
+			if err != nil {
+				m.listErr = err
+				m.secrets = nil
+			} else {
+				m.listErr = nil
+				m.secrets = keys
+			}
 			m.secretIdx = 0
 			m.view = ViewSecrets
 		}
@@ -350,9 +362,3 @@ func (m *Model) loadAudit() {
 	m.auditScroll = 0
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

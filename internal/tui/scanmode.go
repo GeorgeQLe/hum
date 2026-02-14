@@ -120,6 +120,16 @@ func (m Model) handleScanKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case isKey(msg, "pgdown"):
 		if sm.focus == "readme" {
 			sm.readmeScroll += m.logViewHeight() - 1
+			// Clamp to max scroll position
+			totalLines := m.scanReadmeTotalLines()
+			viewHeight := m.logViewHeight()
+			maxScroll := totalLines - viewHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if sm.readmeScroll > maxScroll {
+				sm.readmeScroll = maxScroll
+			}
 		}
 		return m, nil
 	}
@@ -166,7 +176,6 @@ func (m *Model) exitScanMode(confirmed bool) {
 
 		m.scanMode = nil
 		if len(addedNames) > 0 {
-			m.layoutDirty = true
 			m.saveConfig()
 			m.systemLog(fmt.Sprintf("Added %d app(s): %s", len(addedNames), strings.Join(addedNames, ", ")))
 		} else {
@@ -227,8 +236,8 @@ func renderScanCandidateRow(m *Model, rowIdx, width int) string {
 	// Truncate name
 	maxNameLen := width - 7 // prefix(2) + check(3) + space(1) + padding(1)
 	displayName := c.Name
-	if len(displayName) > maxNameLen && maxNameLen > 1 {
-		displayName = displayName[:maxNameLen-1] + "…"
+	if stringWidth(displayName) > maxNameLen && maxNameLen > 1 {
+		displayName = truncateString(displayName, maxNameLen-1) + "…"
 	}
 
 	text := prefix + check + " " + displayName
@@ -293,6 +302,22 @@ func renderScanReadmeRow(m *Model, rowIdx, width int) string {
 	}
 
 	return strings.Repeat(" ", width)
+}
+
+// scanReadmeTotalLines returns the total number of info+readme lines for the current candidate.
+func (m *Model) scanReadmeTotalLines() int {
+	sm := m.scanMode
+	if sm == nil || sm.cursorIdx < 0 || sm.cursorIdx >= len(sm.candidates) {
+		return 0
+	}
+	c := sm.candidates[sm.cursorIdx]
+	count := 4 // Command, Ports, Script, blank line
+	readme := m.loadReadme(c.Dir)
+	if readme != "" {
+		count++ // "README" header
+		count += len(strings.Split(readme, "\n"))
+	}
+	return count
 }
 
 func (m *Model) loadReadme(dir string) string {

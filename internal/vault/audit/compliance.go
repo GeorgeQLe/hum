@@ -55,6 +55,15 @@ func (r *ComplianceReport) ExportJSON(w io.Writer) error {
 	return enc.Encode(r)
 }
 
+// sanitizeCSVCell prevents CSV injection by prefixing dangerous leading
+// characters with a single quote.
+func sanitizeCSVCell(s string) string {
+	if len(s) > 0 && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@') {
+		return "'" + s
+	}
+	return s
+}
+
 // ExportCSV writes the access log as CSV to the writer.
 func (r *ComplianceReport) ExportCSV(w io.Writer) error {
 	cw := csv.NewWriter(w)
@@ -67,13 +76,13 @@ func (r *ComplianceReport) ExportCSV(w io.Writer) error {
 
 	for _, e := range r.AccessLog {
 		if err := cw.Write([]string{
-			e.Timestamp.Format(time.RFC3339),
-			e.Action,
-			e.User,
-			e.Environment,
-			e.Key,
-			e.Details,
-			e.IPAddress,
+			sanitizeCSVCell(e.Timestamp.Format(time.RFC3339)),
+			sanitizeCSVCell(e.Action),
+			sanitizeCSVCell(e.User),
+			sanitizeCSVCell(e.Environment),
+			sanitizeCSVCell(e.Key),
+			sanitizeCSVCell(e.Details),
+			sanitizeCSVCell(e.IPAddress),
 		}); err != nil {
 			return err
 		}

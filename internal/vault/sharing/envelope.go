@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/georgele/devctl/internal/vault/crypto"
+	"golang.org/x/crypto/hkdf"
 )
 
 // EncryptedVaultKey is a vault key encrypted for a specific team member.
@@ -46,15 +48,22 @@ func EncryptVaultKeyForUser(vaultKey []byte, recipientPubKey [KeySize]byte) (*En
 	if err != nil {
 		return nil, fmt.Errorf("generating ephemeral key: %w", err)
 	}
+	defer func() { for i := range ephemeral.PrivateKey { ephemeral.PrivateKey[i] = 0 } }()
 
 	// Compute shared secret
 	shared, err := ComputeSharedSecret(ephemeral.PrivateKey, recipientPubKey)
 	if err != nil {
 		return nil, fmt.Errorf("computing shared secret: %w", err)
 	}
+	defer func() { for i := range shared { shared[i] = 0 } }()
 
-	// Derive AES key from shared secret
-	aesKey := sha256.Sum256(shared)
+	// Derive AES key from shared secret using HKDF
+	hkdfReader := hkdf.New(sha256.New, shared, nil, []byte("envsafe-vault-key-sharing-v1"))
+	var aesKey [32]byte
+	if _, err := io.ReadFull(hkdfReader, aesKey[:]); err != nil {
+		return nil, fmt.Errorf("deriving AES key: %w", err)
+	}
+	defer func() { for i := range aesKey { aesKey[i] = 0 } }()
 
 	// Encrypt vault key
 	encrypted, err := crypto.Encrypt(aesKey[:], vaultKey)
@@ -88,9 +97,15 @@ func DecryptVaultKey(encKey *EncryptedVaultKey, recipientPrivKey [KeySize]byte) 
 	if err != nil {
 		return nil, fmt.Errorf("computing shared secret: %w", err)
 	}
+	defer func() { for i := range shared { shared[i] = 0 } }()
 
-	// Derive AES key
-	aesKey := sha256.Sum256(shared)
+	// Derive AES key using HKDF
+	hkdfReader := hkdf.New(sha256.New, shared, nil, []byte("envsafe-vault-key-sharing-v1"))
+	var aesKey [32]byte
+	if _, err := io.ReadFull(hkdfReader, aesKey[:]); err != nil {
+		return nil, fmt.Errorf("deriving AES key: %w", err)
+	}
+	defer func() { for i := range aesKey { aesKey[i] = 0 } }()
 
 	// Decode encrypted vault key
 	ciphertext, err := base64.StdEncoding.DecodeString(encKey.EncryptedKey)

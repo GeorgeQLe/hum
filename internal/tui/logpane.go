@@ -212,6 +212,26 @@ func stringWidth(s string) int {
 	return runewidth.StringWidth(s)
 }
 
+// truncateString truncates a string to maxWidth visual columns,
+// accounting for multi-byte characters and wide runes.
+func truncateString(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	w := 0
+	for i, r := range s {
+		rw := 1
+		if r > 127 {
+			rw = runewidth.RuneWidth(r)
+		}
+		if w+rw > maxWidth {
+			return s[:i]
+		}
+		w += rw
+	}
+	return s
+}
+
 // truncateToWidth truncates a string to fit within width visual columns,
 // correctly handling multi-byte UTF-8 and wide characters (C4).
 func truncateToWidth(s string, width int) string {

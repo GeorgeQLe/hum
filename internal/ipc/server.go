@@ -2,13 +2,14 @@ package ipc
 
 import (
 	"bufio"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type Request struct {
 	App       json.RawMessage `json:"app,omitempty"`
 	Cwd       string          `json:"cwd,omitempty"`
 	AutoStart bool            `json:"autoStart,omitempty"`
+	Message   string          `json:"message,omitempty"`
 }
 
 // Response represents an IPC response to a client.
@@ -47,12 +49,14 @@ type Server struct {
 	listener   net.Listener
 	requestCh  chan IPCRequestMsg
 	stopCh     chan struct{}
+	closeOnce  sync.Once
 }
 
 // SocketPath returns the socket path for a project root.
 func SocketPath(projectRoot string) string {
-	hash := fmt.Sprintf("%x", md5.Sum([]byte(projectRoot)))[:12]
-	return filepath.Join(socketDir, fmt.Sprintf("devctl-%s.sock", hash))
+	hash := sha256.Sum256([]byte(projectRoot))
+	socketName := fmt.Sprintf("devctl-%x.sock", hash[:8])
+	return filepath.Join(socketDir, socketName)
 }
 
 // NewServer creates a new IPC server for the given project root.
@@ -122,6 +126,9 @@ func (s *Server) Stop() {
 	close(s.stopCh)
 	s.listener.Close()
 	os.Remove(s.socketPath)
+	s.closeOnce.Do(func() {
+		close(s.requestCh)
+	})
 }
 
 func (s *Server) handleConnection(conn net.Conn) {

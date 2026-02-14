@@ -4,7 +4,6 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
-	"strings"
 )
 
 // webDist holds the built React SPA static files.
@@ -14,6 +13,25 @@ import (
 //go:embed all:web_dist
 var webDistFS embed.FS
 
+// spaHandler serves static files from the embedded FS, falling back to
+// index.html for paths that do not match a real file (SPA client-side routing).
+func spaHandler(fsys http.FileSystem) http.Handler {
+	fileServer := http.FileServer(fsys)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// Try to open the file
+		f, err := fsys.Open(path)
+		if err != nil {
+			// File doesn't exist, serve index.html for SPA routing
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		f.Close()
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
 // RegisterSPA adds the SPA file server to the router.
 // Falls back to index.html for client-side routing.
 func (s *Server) RegisterSPA() error {
@@ -22,20 +40,7 @@ func (s *Server) RegisterSPA() error {
 		return err
 	}
 
-	fileServer := http.FileServer(http.FS(dist))
-
-	s.router.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		// Serve static files; fall back to index.html for SPA routes
-		path := r.URL.Path
-		if path == "/" || strings.HasPrefix(path, "/api") {
-			if strings.HasPrefix(path, "/api") {
-				http.NotFound(w, r)
-				return
-			}
-			r.URL.Path = "/index.html"
-		}
-		fileServer.ServeHTTP(w, r)
-	})
+	s.router.Handle("GET /", spaHandler(http.FS(dist)))
 
 	return nil
 }

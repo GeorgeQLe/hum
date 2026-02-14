@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 )
 
 // HealthCheckConfig defines optional HTTP health checking for an app.
@@ -17,6 +18,13 @@ type HealthCheckConfig struct {
 type ResourceLimitsConfig struct {
 	MaxCPU      float64 `json:"maxCpu,omitempty"`
 	MaxMemoryMB int64   `json:"maxMemoryMB,omitempty"`
+}
+
+// WatchConfig defines file watching for auto-restart on source changes.
+type WatchConfig struct {
+	Paths      []string `json:"paths,omitempty"`      // dirs to watch (relative to app Dir)
+	Extensions []string `json:"extensions,omitempty"`  // e.g. [".ts", ".go"]
+	Ignore     []string `json:"ignore,omitempty"`      // glob patterns or dir names to ignore
 }
 
 // App represents a single application entry in apps.json.
@@ -37,6 +45,7 @@ type App struct {
 	Notifications  *bool                 `json:"notifications,omitempty"`
 	Commands       map[string]string     `json:"commands,omitempty"`
 	ResourceLimits *ResourceLimitsConfig `json:"resourceLimits,omitempty"`
+	Watch          *WatchConfig          `json:"watch,omitempty"`
 }
 
 // Validate checks that an App entry has all required fields.
@@ -85,6 +94,13 @@ func (a *App) Validate() error {
 			return fmt.Errorf("\"resourceLimits.maxMemoryMB\" must be non-negative")
 		}
 	}
+	if a.Watch != nil {
+		for _, ext := range a.Watch.Extensions {
+			if ext == "" || ext[0] != '.' {
+				return fmt.Errorf("\"watch.extensions\" entries must start with '.' (got %q)", ext)
+			}
+		}
+	}
 	return nil
 }
 
@@ -118,9 +134,11 @@ func Load(projectRoot string) ([]App, error) {
 
 	valid := make([]App, 0, len(apps))
 	for _, app := range apps {
-		if app.Validate() == nil {
-			valid = append(valid, app)
+		if err := app.Validate(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: app %q failed validation: %v\n", app.Name, err)
+			continue
 		}
+		valid = append(valid, app)
 	}
 	return valid, nil
 }
@@ -174,6 +192,9 @@ func Save(projectRoot string, apps []App) error {
 		if a.ResourceLimits != nil {
 			clean[i].ResourceLimits = a.ResourceLimits
 		}
+		if a.Watch != nil {
+			clean[i].Watch = a.Watch
+		}
 	}
 
 	data, err := json.MarshalIndent(clean, "", "  ")
@@ -181,7 +202,11 @@ func Save(projectRoot string, apps []App) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(configPath, data, 0644)
+	tmp := configPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, configPath)
 }
 
 // HasChanged checks if two App entries differ in significant fields.
@@ -213,6 +238,27 @@ func HasChanged(old, new App) bool {
 		return true
 	}
 	if !healthCheckEqual(old.HealthCheck, new.HealthCheck) {
+		return true
+	}
+	if !boolPtrEq(old.AutoRestart, new.AutoRestart) {
+		return true
+	}
+	if !intPtrEq(old.RestartDelay, new.RestartDelay) {
+		return true
+	}
+	if !intPtrEq(old.MaxRestarts, new.MaxRestarts) {
+		return true
+	}
+	if !boolPtrEq(old.Pinned, new.Pinned) {
+		return true
+	}
+	if !boolPtrEq(old.Notifications, new.Notifications) {
+		return true
+	}
+	if !reflect.DeepEqual(old.ResourceLimits, new.ResourceLimits) {
+		return true
+	}
+	if !watchConfigEqual(old.Watch, new.Watch) {
 		return true
 	}
 	return false
@@ -269,4 +315,36 @@ func healthCheckEqual(a, b *HealthCheckConfig) bool {
 		return false
 	}
 	return a.URL == b.URL && a.Interval == b.Interval
+}
+
+func boolPtrEq(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func intPtrEq(a, b *int) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func watchConfigEqual(a, b *WatchConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return slicesEqual(a.Paths, b.Paths) &&
+		slicesEqual(a.Extensions, b.Extensions) &&
+		slicesEqual(a.Ignore, b.Ignore)
 }

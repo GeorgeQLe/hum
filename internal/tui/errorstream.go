@@ -67,7 +67,7 @@ func (m *Model) buildErrorEntries() []errorStreamEntry {
 
 // renderErrorStreamHeader renders the error stream header line.
 func (m *Model) renderErrorStreamHeader(width int) string {
-	entries := m.buildErrorEntries()
+	entries := m.cachedErrorEntries
 	count := len(entries)
 
 	var header string
@@ -101,7 +101,7 @@ func renderErrorStreamRow(m *Model, rowIdx, width int) string {
 		return m.renderErrorStreamHeader(width)
 	}
 
-	entries := m.buildErrorEntries()
+	entries := m.cachedErrorEntries
 	if len(entries) == 0 {
 		if rowIdx == 1 {
 			return padRight(" "+styleDim.Render("No errors detected"), width)
@@ -211,13 +211,13 @@ func formatCollapsedLine(entry errorStreamEntry, isSelected bool, width int, sho
 	}
 
 	// Truncate message to fit
-	remaining := width - visLen(line.String()) - len(ts) - len(countBadge) - len(loc) - 6
+	remaining := width - visLen(line.String()) - stringWidth(ts) - stringWidth(countBadge) - stringWidth(loc) - 6
 	if remaining < 10 {
 		remaining = 10
 	}
 	displayMsg := msg
-	if len(displayMsg) > remaining {
-		displayMsg = displayMsg[:remaining-1] + "…"
+	if stringWidth(displayMsg) > remaining {
+		displayMsg = truncateString(displayMsg, remaining-1) + "…"
 	}
 	line.WriteString(displayMsg)
 
@@ -341,7 +341,7 @@ func getErrorBodyLines(entry errorStreamEntry) []string {
 }
 
 // handleErrorStreamKeypress handles key events in error stream mode.
-func (m Model) handleErrorStreamKeypress(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleErrorStreamKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	es := m.errorStream
 	entries := m.buildErrorEntries()
 	maxIdx := len(entries) - 1
@@ -407,6 +407,23 @@ func (m Model) handleErrorStreamKeypress(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case isKey(msg, "pgdown"):
 		es.scroll += m.logViewHeight() - 1
+		// Clamp to max scroll position
+		totalVisualLines := 0
+		for i, entry := range entries {
+			if es.expanded[i] {
+				totalVisualLines += 1 + len(getErrorBodyLines(entry))
+			} else {
+				totalVisualLines++
+			}
+		}
+		viewHeight := m.logViewHeight()
+		maxScroll := totalVisualLines - viewHeight
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if es.scroll > maxScroll {
+			es.scroll = maxScroll
+		}
 		return m, nil
 	}
 

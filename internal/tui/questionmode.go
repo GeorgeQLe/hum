@@ -20,12 +20,34 @@ func (m Model) handleQuestionKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cb := q.callback
 		m.questionMode = nil
 		cb(answer)
+		// Pop next question from queue if available
+		if m.questionMode == nil && len(m.questionQueue) > 0 {
+			next := m.questionQueue[0]
+			m.questionQueue = m.questionQueue[1:]
+			m.questionMode = &QuestionMode{
+				Prompt:   next.prompt,
+				Input:    "",
+				Cursor:   0,
+				callback: next.callback,
+			}
+		}
 		return m, nil
 
 	case isKey(msg, "esc"):
 		cb := q.callback
 		m.questionMode = nil
 		cb("") // empty string signals cancel
+		// Pop next question from queue if available
+		if m.questionMode == nil && len(m.questionQueue) > 0 {
+			next := m.questionQueue[0]
+			m.questionQueue = m.questionQueue[1:]
+			m.questionMode = &QuestionMode{
+				Prompt:   next.prompt,
+				Input:    "",
+				Cursor:   0,
+				callback: next.callback,
+			}
+		}
 		return m, nil
 
 	case isKey(msg, "backspace"):
@@ -73,7 +95,15 @@ func (m Model) handleQuestionKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // askQuestion starts an interactive question prompt.
+// If a question is already active, the new question is queued.
 func (m *Model) askQuestion(prompt string, callback func(string)) {
+	if m.questionMode != nil {
+		m.questionQueue = append(m.questionQueue, struct {
+			prompt   string
+			callback func(string)
+		}{prompt, callback})
+		return
+	}
 	m.questionMode = &QuestionMode{
 		Prompt:   prompt,
 		Input:    "",

@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-func TestMatchesErrorPattern(t *testing.T) {
+func TestErrorDetectorMatchesPatterns(t *testing.T) {
+	d := NewErrorDetector()
 	tests := []struct {
 		line  string
 		match bool
@@ -25,9 +26,9 @@ func TestMatchesErrorPattern(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := MatchesErrorPattern(tt.line)
+		got := d.IsError(tt.line)
 		if got != tt.match {
-			t.Errorf("MatchesErrorPattern(%q) = %v, want %v", tt.line, got, tt.match)
+			t.Errorf("ErrorDetector.IsError(%q) = %v, want %v", tt.line, got, tt.match)
 		}
 	}
 }

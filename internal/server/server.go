@@ -2,19 +2,23 @@ package server
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/georgele/devctl/internal/server/auth"
 )
 
 // Config holds server configuration.
 type Config struct {
-	Addr       string
-	DBConnStr  string
-	JWTSecret  string
-	TLSCert    string
-	TLSKey     string
+	Addr           string
+	DBConnStr      string
+	JWTSecret      string
+	TLSCert        string
+	TLSKey         string
+	AllowedOrigins []string
 }
 
 // Server is the envsafe HTTP server.
@@ -26,6 +30,9 @@ type Server struct {
 
 // New creates a new envsafe server.
 func New(cfg Config) *Server {
+	if len(cfg.AllowedOrigins) == 0 {
+		cfg.AllowedOrigins = []string{"http://localhost:5173"}
+	}
 	s := &Server{
 		config: cfg,
 		router: http.NewServeMux(),
@@ -54,15 +61,32 @@ func (s *Server) Start() error {
 
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.server == nil {
+		return nil
+	}
 	return s.server.Shutdown(ctx)
 }
 
 func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// CORS
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// CORS — validate origin against allowed list
+		origin := r.Header.Get("Origin")
+		allowed := false
+		for _, o := range s.config.AllowedOrigins {
+			if o == origin {
+				allowed = true
+				break
+			}
+		}
+		if allowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// CSP
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -76,47 +100,72 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func authMiddleware(jwtSecret string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			jsonError(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		claims, err := auth.ValidateJWT(tokenStr, jwtSecret)
+		if err != nil {
+			jsonError(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), contextKeyUserEmail, claims.Email)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// contextKey is an unexported type for context keys to avoid collisions.
+type contextKey string
+
+const contextKeyUserEmail = contextKey("userEmail")
+
 func (s *Server) registerRoutes() {
-	// Health check
+	// Health check (public)
 	s.router.HandleFunc("GET /api/health", s.handleHealth)
 
-	// Auth
+	// Auth (public)
 	s.router.HandleFunc("POST /api/auth/register", s.handleRegister)
 	s.router.HandleFunc("POST /api/auth/login", s.handleLogin)
-	s.router.HandleFunc("POST /api/auth/totp/setup", s.handleTOTPSetup)
-	s.router.HandleFunc("POST /api/auth/totp/verify", s.handleTOTPVerify)
 
-	// Secrets
-	s.router.HandleFunc("GET /api/secrets/{env}", s.handleListSecrets)
-	s.router.HandleFunc("GET /api/secrets/{env}/{key}", s.handleGetSecret)
-	s.router.HandleFunc("PUT /api/secrets/{env}/{key}", s.handleSetSecret)
-	s.router.HandleFunc("DELETE /api/secrets/{env}/{key}", s.handleDeleteSecret)
-
-	// Environments
-	s.router.HandleFunc("GET /api/environments", s.handleListEnvironments)
-	s.router.HandleFunc("POST /api/environments", s.handleCreateEnvironment)
-
-	// Users (admin)
-	s.router.HandleFunc("GET /api/users", s.handleListUsers)
-	s.router.HandleFunc("PUT /api/users/{id}/role", s.handleSetUserRole)
-
-	// Audit
-	s.router.HandleFunc("GET /api/audit", s.handleAuditLog)
-
-	// Share
-	s.router.HandleFunc("POST /api/share", s.handleCreateShare)
+	// Public share retrieval
 	s.router.HandleFunc("GET /api/share/{token}", s.handleGetShare)
+
+	// Protected routes — require JWT auth
+	protected := http.NewServeMux()
+	protected.HandleFunc("POST /api/auth/totp/setup", s.handleTOTPSetup)
+	protected.HandleFunc("POST /api/auth/totp/verify", s.handleTOTPVerify)
+
+	protected.HandleFunc("GET /api/secrets/{env}", s.handleListSecrets)
+	protected.HandleFunc("GET /api/secrets/{env}/{key}", s.handleGetSecret)
+	protected.HandleFunc("PUT /api/secrets/{env}/{key}", s.handleSetSecret)
+	protected.HandleFunc("DELETE /api/secrets/{env}/{key}", s.handleDeleteSecret)
+
+	protected.HandleFunc("GET /api/environments", s.handleListEnvironments)
+	protected.HandleFunc("POST /api/environments", s.handleCreateEnvironment)
+
+	protected.HandleFunc("GET /api/users", s.handleListUsers)
+	protected.HandleFunc("PUT /api/users/{id}/role", s.handleSetUserRole)
+
+	protected.HandleFunc("GET /api/audit", s.handleAuditLog)
+
+	protected.HandleFunc("POST /api/share", s.handleCreateShare)
+
+	s.router.Handle("/", authMiddleware(s.config.JWTSecret, protected))
 }
 
 // JSON helper
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `{"error":%q}`, msg)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-func jsonOK(w http.ResponseWriter, data string) {
+func jsonOK(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, data)
+	json.NewEncoder(w).Encode(v)
 }

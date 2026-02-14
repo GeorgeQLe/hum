@@ -1,6 +1,7 @@
 package health
 
 import (
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -166,6 +167,7 @@ func (c *Checker) doCheck(appName string, ac *appChecker) {
 			NewStatus: newStatus,
 		}:
 		default:
+			log.Printf("health: status update dropped for %s (channel full)", appName)
 		}
 	}
 }

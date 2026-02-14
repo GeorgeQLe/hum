@@ -79,16 +79,12 @@ func TestErrorDetector_RedAnsi(t *testing.T) {
 }
 
 func TestErrorDetector_BackwardCompatibility(t *testing.T) {
-	// Ensure the old MatchesErrorPattern still works
-	if !MatchesErrorPattern("Error: test") {
-		t.Error("MatchesErrorPattern should still detect errors")
+	d := NewErrorDetector()
+	// Ensure ErrorDetector.IsError works for pattern matching
+	if !d.IsError("Error: test") {
+		t.Error("ErrorDetector.IsError should detect errors")
 	}
-	if MatchesErrorPattern("normal line") {
-		t.Error("MatchesErrorPattern should not flag normal lines")
-	}
-
-	// Ensure IsErrorLine still works
-	if !IsErrorLine("Error: test") {
-		t.Error("IsErrorLine should still detect errors")
+	if d.IsError("normal line") {
+		t.Error("ErrorDetector.IsError should not flag normal lines")
 	}
 }

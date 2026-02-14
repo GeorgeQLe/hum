@@ -21,5 +21,14 @@ envsafe.exe
 web/node_modules/
 web/dist/
 
+# Environment files
+.env*
+
+# Generated web dist
+internal/server/web_dist/
+
+# Coverage
+*.coverprofile
+
 # OS
 .DS_Store

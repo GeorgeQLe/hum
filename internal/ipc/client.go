@@ -80,3 +80,8 @@ func (c *Client) AddApp(appJSON json.RawMessage, cwd string, autoStart bool) (*R
 func (c *Client) Stats() (*Response, error) {
 	return c.Send(Request{Action: "stats"})
 }
+
+// BuildError sends a build error message to the running TUI.
+func (c *Client) BuildError(msg string) (*Response, error) {
+	return c.Send(Request{Action: "build-error", Message: msg})
+}

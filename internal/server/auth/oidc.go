@@ -1,5 +1,7 @@
 package auth
 
+import "net/url"
+
 // OIDCConfig holds OIDC SSO configuration.
 type OIDCConfig struct {
 	Issuer       string `json:"issuer"`
@@ -21,7 +23,11 @@ func NewOIDCProvider(cfg OIDCConfig) *OIDCProvider {
 
 // AuthorizationURL returns the URL to redirect the user to for SSO login.
 func (p *OIDCProvider) AuthorizationURL(state string) string {
-	return p.Config.Issuer + "/authorize?client_id=" + p.Config.ClientID +
-		"&redirect_uri=" + p.Config.RedirectURL +
-		"&response_type=code&scope=openid+email+profile&state=" + state
+	params := url.Values{}
+	params.Set("client_id", p.Config.ClientID)
+	params.Set("redirect_uri", p.Config.RedirectURL)
+	params.Set("response_type", "code")
+	params.Set("scope", "openid email profile")
+	params.Set("state", state)
+	return p.Config.Issuer + "/authorize?" + params.Encode()
 }

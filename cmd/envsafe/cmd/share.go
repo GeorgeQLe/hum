@@ -21,6 +21,8 @@ func ShareCmd() *cobra.Command {
 		Short: "Create a one-time share link",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			warnIfInsecureHTTP(serverURL)
+
 			key := args[0]
 
 			projectRoot, err := findProjectRoot()
@@ -62,7 +64,9 @@ func ShareCmd() *cobra.Command {
 				Token     string `json:"token"`
 				ExpiresIn int    `json:"expires_in"`
 			}
-			json.Unmarshal(respBody, &result)
+			if err := json.Unmarshal(respBody, &result); err != nil {
+				return fmt.Errorf("parsing server response: %w", err)
+			}
 
 			fmt.Printf("Share link: %s/api/share/%s\n", serverURL, result.Token)
 			fmt.Printf("Expires in: %d seconds\n", result.ExpiresIn)

@@ -92,23 +92,7 @@ type ErrorBuffer struct {
 }
 
 // redAnsiRe matches ANSI escape codes for red (31) and bright red (91) foreground.
-var redAnsiRe = regexp.MustCompile(`\x1b\[[0-9;]*(31|91)m`)
-
-// IsErrorLine returns true if a line matches error patterns or contains red ANSI coloring.
-func IsErrorLine(line string) bool {
-	return MatchesErrorPattern(line) || redAnsiRe.MatchString(line)
-}
-
-// MatchesErrorPattern checks if a line matches any error pattern.
-func MatchesErrorPattern(line string) bool {
-	stripped := StripAnsi(line)
-	for _, re := range ErrorPatterns {
-		if re.MatchString(stripped) {
-			return true
-		}
-	}
-	return false
-}
+var redAnsiRe = regexp.MustCompile(`\x1b\[(0;)?(1;)?(31|91)m`)
 
 // CaptureError captures an error starting at lineIdx in the log buffer,
 // collecting lines until a blank line or end of buffer.
@@ -129,7 +113,9 @@ func (eb *ErrorBuffer) CaptureError(logBuf *LogBuffer, lineIdx int) {
 	})
 
 	if len(eb.Errors) > maxStoredErrors {
-		eb.Errors = eb.Errors[1:]
+		newErrors := make([]CapturedError, len(eb.Errors)-1)
+		copy(newErrors, eb.Errors[1:])
+		eb.Errors = newErrors
 		// Rebuild group index after trimming
 		eb.rebuildGroupsLocked()
 	}
@@ -169,7 +155,9 @@ func (eb *ErrorBuffer) AddParsedError(appName string, rawLines []string, parsed 
 	}
 
 	if len(eb.Errors) > maxStoredErrors {
-		eb.Errors = eb.Errors[1:]
+		newErrors := make([]CapturedError, len(eb.Errors)-1)
+		copy(newErrors, eb.Errors[1:])
+		eb.Errors = newErrors
 		eb.rebuildGroupsLocked()
 	}
 }

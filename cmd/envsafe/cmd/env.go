@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/georgele/devctl/internal/vault"
 	"github.com/spf13/cobra"
@@ -39,7 +40,7 @@ func EnvCmd() *cobra.Command {
 			sort.Strings(keys)
 
 			for _, k := range keys {
-				fmt.Printf("%s=%s\n", k, secrets[k])
+				fmt.Printf("%s='%s'\n", k, strings.ReplaceAll(secrets[k], "'", "'\\''"))
 			}
 			return nil
 		},

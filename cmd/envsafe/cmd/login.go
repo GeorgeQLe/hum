@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -17,9 +21,12 @@ func LoginCmd() *cobra.Command {
 		Use:   "login",
 		Short: "Authenticate with envsafe server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Print("Email: ")
-			var email string
-			fmt.Scanln(&email)
+			warnIfInsecureHTTP(serverURL)
+
+			fmt.Fprint(os.Stderr, "Email: ")
+			reader := bufio.NewReader(os.Stdin)
+			email, _ := reader.ReadString('\n')
+			email = strings.TrimSpace(email)
 
 			password, err := promptPassword("Password: ")
 			if err != nil {
@@ -47,9 +54,25 @@ func LoginCmd() *cobra.Command {
 				Token   string `json:"token"`
 				Message string `json:"message"`
 			}
-			json.Unmarshal(respBody, &result)
+			if err := json.Unmarshal(respBody, &result); err != nil {
+				return fmt.Errorf("parsing server response: %w", err)
+			}
 
-			fmt.Printf("Logged in successfully. Token: %s\n", result.Token)
+			// Store token in config file instead of printing to stdout
+			configDir, err := os.UserConfigDir()
+			if err != nil {
+				return fmt.Errorf("finding config directory: %w", err)
+			}
+			tokenDir := filepath.Join(configDir, "envsafe")
+			if err := os.MkdirAll(tokenDir, 0700); err != nil {
+				return fmt.Errorf("creating config directory: %w", err)
+			}
+			tokenPath := filepath.Join(tokenDir, "token")
+			if err := os.WriteFile(tokenPath, []byte(result.Token), 0600); err != nil {
+				return fmt.Errorf("saving token: %w", err)
+			}
+
+			fmt.Fprintln(os.Stderr, "Logged in successfully.")
 			return nil
 		},
 	}

@@ -6,10 +6,21 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/georgele/devctl/internal/vault/crypto"
 )
+
+// atomicWriteFile writes data to a file atomically by writing to a temp file
+// and renaming. This prevents partial writes from corrupting the file.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
 
 const (
 	VaultDir    = ".envsafe"
@@ -54,6 +65,7 @@ type Vault struct {
 	data     *VaultData
 	key      []byte // Derived encryption key (nil when locked)
 	salt     []byte // Argon2id salt
+	mu       sync.RWMutex
 }
 
 // VaultPath returns the path to the .envsafe directory.
@@ -142,6 +154,9 @@ func Open(projectRoot string) (*Vault, error) {
 
 // Unlock decrypts the vault with the given password.
 func (v *Vault) Unlock(password string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	vaultDir := VaultPath(v.Root)
 
 	raw, err := os.ReadFile(filepath.Join(vaultDir, VaultFile))
@@ -166,6 +181,7 @@ func (v *Vault) Unlock(password string) error {
 	if err != nil {
 		return fmt.Errorf("wrong password or corrupted vault")
 	}
+	defer func() { for i := range plaintext { plaintext[i] = 0 } }()
 
 	var data VaultData
 	if err := json.Unmarshal(plaintext, &data); err != nil {
@@ -179,28 +195,44 @@ func (v *Vault) Unlock(password string) error {
 
 // Lock clears the decryption key and data from memory.
 func (v *Vault) Lock() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	// Zero out the key
 	for i := range v.key {
 		v.key[i] = 0
 	}
 	v.key = nil
+	// Zero out the salt
+	for i := range v.salt {
+		v.salt[i] = 0
+	}
+	v.salt = nil
 	v.data = nil
 }
 
 // IsUnlocked returns whether the vault is currently unlocked.
 func (v *Vault) IsUnlocked() bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
 	return v.key != nil && v.data != nil
 }
 
 // Set stores a secret in the given environment.
 func (v *Vault) Set(env, key, value string) error {
-	if !v.IsUnlocked() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.key == nil || v.data == nil {
 		return fmt.Errorf("vault is locked")
 	}
 
 	if _, ok := v.data.Environments[env]; !ok {
 		v.data.Environments[env] = make(map[string]*SecretEntry)
-		v.addEnvironment(env)
+		if err := v.addEnvironment(env); err != nil {
+			return err
+		}
 	}
 
 	now := time.Now().UTC()
@@ -220,7 +252,10 @@ func (v *Vault) Set(env, key, value string) error {
 
 // Get retrieves a secret from the given environment.
 func (v *Vault) Get(env, key string) (string, error) {
-	if !v.IsUnlocked() {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	if v.key == nil || v.data == nil {
 		return "", fmt.Errorf("vault is locked")
 	}
 
@@ -239,7 +274,10 @@ func (v *Vault) Get(env, key string) (string, error) {
 
 // List returns all keys in the given environment (sorted).
 func (v *Vault) List(env string) ([]string, error) {
-	if !v.IsUnlocked() {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	if v.key == nil || v.data == nil {
 		return nil, fmt.Errorf("vault is locked")
 	}
 
@@ -258,7 +296,10 @@ func (v *Vault) List(env string) ([]string, error) {
 
 // Remove deletes a secret from the given environment.
 func (v *Vault) Remove(env, key string) error {
-	if !v.IsUnlocked() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.key == nil || v.data == nil {
 		return fmt.Errorf("vault is locked")
 	}
 
@@ -277,7 +318,10 @@ func (v *Vault) Remove(env, key string) error {
 
 // Env returns all key-value pairs for the given environment.
 func (v *Vault) Env(env string) (map[string]string, error) {
-	if !v.IsUnlocked() {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	if v.key == nil || v.data == nil {
 		return nil, fmt.Errorf("vault is locked")
 	}
 
@@ -295,7 +339,10 @@ func (v *Vault) Env(env string) (map[string]string, error) {
 
 // Rotate updates a secret's value and stores the previous value in history.
 func (v *Vault) Rotate(env, key, newValue string) error {
-	if !v.IsUnlocked() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.key == nil || v.data == nil {
 		return fmt.Errorf("vault is locked")
 	}
 
@@ -322,6 +369,9 @@ func (v *Vault) Rotate(env, key, newValue string) error {
 
 // ListEnvironments returns all environment names (sorted).
 func (v *Vault) ListEnvironments() []string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
 	envs := make([]string, len(v.Config.Environments))
 	copy(envs, v.Config.Environments)
 	sort.Strings(envs)
@@ -330,13 +380,18 @@ func (v *Vault) ListEnvironments() []string {
 
 // ImportSecrets imports a map of key-value pairs into the given environment.
 func (v *Vault) ImportSecrets(env string, secrets map[string]string) error {
-	if !v.IsUnlocked() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.key == nil || v.data == nil {
 		return fmt.Errorf("vault is locked")
 	}
 
 	if _, ok := v.data.Environments[env]; !ok {
 		v.data.Environments[env] = make(map[string]*SecretEntry)
-		v.addEnvironment(env)
+		if err := v.addEnvironment(env); err != nil {
+			return err
+		}
 	}
 
 	now := time.Now().UTC()
@@ -351,14 +406,14 @@ func (v *Vault) ImportSecrets(env string, secrets map[string]string) error {
 	return v.saveVault()
 }
 
-func (v *Vault) addEnvironment(env string) {
+func (v *Vault) addEnvironment(env string) error {
 	for _, e := range v.Config.Environments {
 		if e == env {
-			return
+			return nil
 		}
 	}
 	v.Config.Environments = append(v.Config.Environments, env)
-	v.saveConfig()
+	return v.saveConfig()
 }
 
 func (v *Vault) saveConfig() error {
@@ -369,11 +424,12 @@ func (v *Vault) saveConfig() error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 	data = append(data, '\n')
-	return os.WriteFile(filepath.Join(vaultDir, ConfigFile), data, 0644)
+	return atomicWriteFile(filepath.Join(vaultDir, ConfigFile), data, 0600)
 }
 
 func (v *Vault) saveVault() error {
-	if !v.IsUnlocked() {
+	// Note: callers must hold v.mu; use direct field check to avoid deadlock
+	if v.key == nil || v.data == nil {
 		return fmt.Errorf("vault is locked")
 	}
 
@@ -383,6 +439,7 @@ func (v *Vault) saveVault() error {
 	if err != nil {
 		return fmt.Errorf("marshaling vault data: %w", err)
 	}
+	defer func() { for i := range plaintext { plaintext[i] = 0 } }()
 
 	encrypted, err := crypto.Encrypt(v.key, plaintext)
 	if err != nil {
@@ -394,5 +451,5 @@ func (v *Vault) saveVault() error {
 	out = append(out, v.salt...)
 	out = append(out, encrypted...)
 
-	return os.WriteFile(filepath.Join(vaultDir, VaultFile), out, 0600)
+	return atomicWriteFile(filepath.Join(vaultDir, VaultFile), out, 0600)
 }

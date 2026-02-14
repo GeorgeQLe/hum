@@ -137,7 +137,10 @@ func TestDependencyOrderLinear(t *testing.T) {
 		makeApp("C"),
 	}
 
-	deps := DependencyOrder(apps, "A")
+	deps, err := DependencyOrder(apps, "A")
+	if err != nil {
+		t.Fatalf("DependencyOrder: %v", err)
+	}
 	// Should return [C, B] — both must start before A
 	if len(deps) != 2 {
 		t.Fatalf("expected 2 deps, got %d: %v", len(deps), deps)
@@ -158,7 +161,10 @@ func TestDependencyOrderNoDeps(t *testing.T) {
 		makeApp("B"),
 	}
 
-	deps := DependencyOrder(apps, "A")
+	deps, err := DependencyOrder(apps, "A")
+	if err != nil {
+		t.Fatalf("DependencyOrder: %v", err)
+	}
 	if len(deps) != 0 {
 		t.Errorf("expected 0 deps, got %v", deps)
 	}
@@ -172,7 +178,10 @@ func TestDependencyOrderDiamond(t *testing.T) {
 		makeApp("D"),
 	}
 
-	deps := DependencyOrder(apps, "A")
+	deps, err := DependencyOrder(apps, "A")
+	if err != nil {
+		t.Fatalf("DependencyOrder: %v", err)
+	}
 	// Should return [D, B, C] or [D, C, B] — D must be first
 	if len(deps) != 3 {
 		t.Fatalf("expected 3 deps, got %d: %v", len(deps), deps)

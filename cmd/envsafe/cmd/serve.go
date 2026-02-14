@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/georgele/devctl/internal/server"
 	"github.com/spf13/cobra"
@@ -42,7 +43,9 @@ func ServeCmd() *cobra.Command {
 				return fmt.Errorf("server error: %w", err)
 			case sig := <-sigCh:
 				fmt.Printf("\nReceived %s, shutting down...\n", sig)
-				return srv.Shutdown(context.Background())
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				return srv.Shutdown(ctx)
 			}
 		},
 	}
@@ -50,6 +53,7 @@ func ServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&addr, "addr", ":8484", "Server listen address")
 	cmd.Flags().StringVar(&tlsCert, "tls-cert", "", "TLS certificate file")
 	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "TLS key file")
+	cmd.MarkFlagsRequiredTogether("tls-cert", "tls-key")
 
 	return cmd
 }

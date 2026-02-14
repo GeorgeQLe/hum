@@ -2,13 +2,36 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/georgele/devctl/internal/vault"
 	"github.com/georgele/devctl/internal/vault/keychain"
 	"golang.org/x/term"
 )
+
+var validNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]*$`)
+
+func validateName(name, label string) error {
+	if !validNameRe.MatchString(name) {
+		return fmt.Errorf("invalid %s name %q: must match [A-Za-z_][A-Za-z0-9_.-]*", label, name)
+	}
+	return nil
+}
+
+func warnIfInsecureHTTP(serverURL string) {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return
+	}
+	host := u.Hostname()
+	if host != "localhost" && host != "127.0.0.1" && host != "::1" && !strings.HasPrefix(serverURL, "https://") {
+		fmt.Fprintln(os.Stderr, "WARNING: Using unencrypted HTTP with a non-local server. Credentials may be exposed.")
+	}
+}
 
 // findProjectRoot walks up from CWD to find a directory with .envsafe/ or apps.json.
 func findProjectRoot() (string, error) {
@@ -52,6 +75,7 @@ func openAndUnlock(projectRoot string) (*vault.Vault, error) {
 			return v, nil
 		}
 		// Cached password is stale; fall through to prompt
+		fmt.Fprintln(os.Stderr, "warning: cached keychain password is stale, prompting for password")
 	}
 
 	// Prompt for password

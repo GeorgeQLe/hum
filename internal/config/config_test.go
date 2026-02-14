@@ -438,4 +438,88 @@ func TestValidateNewFields(t *testing.T) {
 	if err := app4.Validate(); err != nil {
 		t.Errorf("expected no error for valid healthCheck, got: %v", err)
 	}
+
+	// Watch extension without dot
+	app5 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{Extensions: []string{"go"}}}
+	if err := app5.Validate(); err == nil {
+		t.Error("expected error for watch extension without dot")
+	}
+
+	// Valid watch config
+	app6 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{Extensions: []string{".go", ".ts"}}}
+	if err := app6.Validate(); err != nil {
+		t.Errorf("expected no error for valid watch config, got: %v", err)
+	}
+
+	// Empty watch config (valid — enables watching with defaults)
+	app7 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{}}
+	if err := app7.Validate(); err != nil {
+		t.Errorf("expected no error for empty watch config, got: %v", err)
+	}
+}
+
+func TestSaveLoadWatchConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	apps := []App{
+		{
+			Name:    "api",
+			Dir:     "packages/api",
+			Command: "go run .",
+			Ports:   []int{8080},
+			Watch: &WatchConfig{
+				Paths:      []string{"./src"},
+				Extensions: []string{".go"},
+				Ignore:     []string{"vendor"},
+			},
+		},
+	}
+
+	if err := Save(tmpDir, apps); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load(tmpDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(loaded))
+	}
+
+	app := loaded[0]
+	if app.Watch == nil {
+		t.Fatal("expected non-nil Watch")
+	}
+	if len(app.Watch.Paths) != 1 || app.Watch.Paths[0] != "./src" {
+		t.Errorf("expected Paths=[./src], got %v", app.Watch.Paths)
+	}
+	if len(app.Watch.Extensions) != 1 || app.Watch.Extensions[0] != ".go" {
+		t.Errorf("expected Extensions=[.go], got %v", app.Watch.Extensions)
+	}
+	if len(app.Watch.Ignore) != 1 || app.Watch.Ignore[0] != "vendor" {
+		t.Errorf("expected Ignore=[vendor], got %v", app.Watch.Ignore)
+	}
+}
+
+func TestHasChangedWatchConfig(t *testing.T) {
+	base := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}}
+	withWatch := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{}}
+	if !HasChanged(base, withWatch) {
+		t.Error("HasChanged() should detect watch config added")
+	}
+
+	w1 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{Extensions: []string{".go"}}}
+	w2 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{Extensions: []string{".ts"}}}
+	if !HasChanged(w1, w2) {
+		t.Error("HasChanged() should detect watch extension change")
+	}
+
+	// Identical watch configs
+	w3 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{Extensions: []string{".go"}}}
+	w4 := App{Name: "web", Dir: ".", Command: "npm dev", Ports: []int{3000}, Watch: &WatchConfig{Extensions: []string{".go"}}}
+	if HasChanged(w3, w4) {
+		t.Error("HasChanged() should not detect change for identical watch configs")
+	}
 }

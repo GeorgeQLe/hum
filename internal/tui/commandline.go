@@ -9,7 +9,7 @@ var commandNames = []string{
 	"start", "stop", "restart", "status",
 	"ports", "scan", "add", "remove", "reload",
 	"autorestart", "clear-errors", "export",
-	"pin", "unpin", "run", "top",
+	"pin", "unpin", "run", "top", "watch",
 	"list", "help", "quit",
 }
 
@@ -18,7 +18,7 @@ var commandsWithName = map[string]bool{
 	"start": true, "stop": true, "restart": true,
 	"status": true, "remove": true, "autorestart": true,
 	"clear-errors": true, "export": true,
-	"pin": true, "unpin": true, "run": true,
+	"pin": true, "unpin": true, "run": true, "watch": true,
 }
 
 // Commands that also accept "all".

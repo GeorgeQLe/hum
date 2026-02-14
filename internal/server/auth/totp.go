@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"net/url"
 	"time"
 )
 
@@ -53,8 +54,13 @@ func ValidateTOTPCode(secret, code string) (bool, error) {
 
 // TOTPProvisioningURI generates an otpauth:// URI for QR code generation.
 func TOTPProvisioningURI(secret, email, issuer string) string {
-	return fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s&digits=%d&period=%d",
-		issuer, email, secret, issuer, totpDigits, totpPeriod)
+	label := url.PathEscape(issuer) + ":" + url.PathEscape(email)
+	params := url.Values{}
+	params.Set("secret", secret)
+	params.Set("issuer", issuer)
+	params.Set("digits", fmt.Sprintf("%d", totpDigits))
+	params.Set("period", fmt.Sprintf("%d", totpPeriod))
+	return fmt.Sprintf("otpauth://totp/%s?%s", label, params.Encode())
 }
 
 func generateHOTP(key []byte, counter uint64) string {

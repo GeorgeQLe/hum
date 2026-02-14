@@ -113,7 +113,7 @@ func renderTopLeftRow(m *Model, rowIdx, width int) string {
 		return padRight(styleDim.Render(headers), width)
 	}
 
-	rows := m.buildTopRows()
+	rows := m.cachedTopRows
 	idx := tm.scroll + (rowIdx - 2)
 	if idx < 0 || idx >= len(rows) {
 		return strings.Repeat(" ", width)
@@ -141,8 +141,8 @@ func renderTopLeftRow(m *Model, rowIdx, width int) string {
 	}
 
 	name := row.name
-	if len(name) > nameW {
-		name = name[:nameW-1] + "\u2026"
+	if stringWidth(name) > nameW {
+		name = truncateString(name, nameW-1) + "\u2026"
 	}
 
 	line := fmt.Sprintf("%s%-*s %6s %8s %8s", prefix, nameW, name, cpuStr, memStr, row.uptime)
@@ -160,7 +160,7 @@ func renderTopRightRow(m *Model, rowIdx, width int) string {
 		return strings.Repeat(" ", width)
 	}
 
-	rows := m.buildTopRows()
+	rows := m.cachedTopRows
 	if tm.cursor < 0 || tm.cursor >= len(rows) {
 		return strings.Repeat(" ", width)
 	}
@@ -206,7 +206,7 @@ func renderTopRightRow(m *Model, rowIdx, width int) string {
 	return strings.Repeat(" ", width)
 }
 
-func (m Model) handleTopKeypress(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleTopKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	tm := m.topMode
 
 	switch {

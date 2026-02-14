@@ -74,7 +74,7 @@ func renderSidebar(m *Model, rowIdx, width int) string {
 		return padRight(" "+label, width)
 	}
 
-	sidebarRows := buildSidebarRows(m)
+	sidebarRows := m.cachedSidebarRows
 	dataIdx := rowIdx - 1 // -1 for header
 	if dataIdx < 0 || dataIdx >= len(sidebarRows) {
 		return strings.Repeat(" ", width)
@@ -87,7 +87,7 @@ func renderSidebar(m *Model, rowIdx, width int) string {
 	}
 	if row.appIdx == -1 {
 		// System entry
-		return renderSidebarEntry(m, 0, systemName, "", width)
+		return renderSidebarEntry(m, 0, systemName, width)
 	}
 
 	app := m.apps[row.appIdx]
@@ -95,7 +95,7 @@ func renderSidebar(m *Model, rowIdx, width int) string {
 	return renderSidebarAppEntry(m, row.selectIdx, app.Name, status, width)
 }
 
-func renderSidebarEntry(m *Model, selectIdx int, name string, _ string, width int) string {
+func renderSidebarEntry(m *Model, selectIdx int, name string, width int) string {
 	isSelected := m.selectedIdx == selectIdx
 	prefix := "   "
 	if isSelected {
@@ -176,21 +176,29 @@ func renderSidebarAppEntry(m *Model, selectIdx int, name string, status process.
 		resourceSuffixLen = 1
 	}
 
-	// Truncate name if needed (width - 3 prefix - 2 dot+space - error indicator - health - resource)
-	maxNameLen := width - 5 - errorSuffixLen - healthSuffixLen - resourceSuffixLen
-	displayName := name
-	if len(displayName) > maxNameLen && maxNameLen > 1 {
-		displayName = displayName[:maxNameLen-1] + "…"
+	// File watch indicator
+	watchSuffix := ""
+	watchSuffixLen := 0
+	if m.fileWatchManager != nil && m.fileWatchManager.HasWatch(name) && m.fileWatchManager.IsEnabled(name) {
+		watchSuffix = styleDim.Render("◎")
+		watchSuffixLen = 1
 	}
 
-	padLen := width - 3 - len(displayName) - 2 - errorSuffixLen - healthSuffixLen - resourceSuffixLen
+	// Truncate name if needed (width - 3 prefix - 2 dot+space - error indicator - health - resource - watch)
+	maxNameLen := width - 5 - errorSuffixLen - healthSuffixLen - resourceSuffixLen - watchSuffixLen
+	displayName := name
+	if stringWidth(displayName) > maxNameLen && maxNameLen > 1 {
+		displayName = truncateString(displayName, maxNameLen-1) + "…"
+	}
+
+	padLen := width - 3 - stringWidth(displayName) - 2 - errorSuffixLen - healthSuffixLen - resourceSuffixLen - watchSuffixLen
 	if padLen < 0 {
 		padLen = 0
 	}
 	padding := strings.Repeat(" ", padLen)
 
 	dot := dotStyle(dotChar)
-	suffixes := resourceSuffix + healthSuffix + errorSuffix + dot
+	suffixes := watchSuffix + resourceSuffix + healthSuffix + errorSuffix + dot
 
 	if isSelected && m.focusArea == focusSidebar {
 		return styleInverse.Render(fmt.Sprintf("%s%s%s ", prefix, displayName, padding)) + suffixes

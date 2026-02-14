@@ -2,7 +2,6 @@ package tui
 
 import (
 	"regexp"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -70,11 +69,3 @@ func (m Model) handleFilterKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// isLineVisible checks whether a line passes the active filter.
-func (m *Model) isLineVisible(text string) bool {
-	if m.filterMode == nil || m.filterMode.regex == nil {
-		return true
-	}
-	stripped := strings.TrimSpace(text)
-	return m.filterMode.matches(stripped)
-}

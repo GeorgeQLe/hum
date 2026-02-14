@@ -329,37 +329,39 @@ func (rm *ResourceMonitor) checkThresholds(appName string, am *appMonitor, s Res
 		return
 	}
 
-	var alert *ThresholdAlert
+	var alerts []ThresholdAlert
 
 	if threshold.MaxCPUPercent > 0 && s.CPUPercent > threshold.MaxCPUPercent {
-		alert = &ThresholdAlert{
+		alerts = append(alerts, ThresholdAlert{
 			AppName:   appName,
 			Type:      AlertCPU,
 			Value:     s.CPUPercent,
 			Threshold: threshold.MaxCPUPercent,
 			Timestamp: s.Timestamp,
-		}
+		})
 	}
 
 	if threshold.MaxMemoryMB > 0 && s.MemoryRSS > threshold.MaxMemoryMB*1024*1024 {
 		memMB := float64(s.MemoryRSS) / (1024 * 1024)
-		alert = &ThresholdAlert{
+		alerts = append(alerts, ThresholdAlert{
 			AppName:   appName,
 			Type:      AlertMemory,
 			Value:     memMB,
 			Threshold: float64(threshold.MaxMemoryMB),
 			Timestamp: s.Timestamp,
-		}
+		})
 	}
 
-	if alert != nil {
+	if len(alerts) > 0 {
 		am.mu.Lock()
 		am.lastAlert = time.Now()
 		am.mu.Unlock()
 
-		select {
-		case rm.alertCh <- *alert:
-		default:
+		for _, alert := range alerts {
+			select {
+			case rm.alertCh <- alert:
+			default:
+			}
 		}
 	}
 }
