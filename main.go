@@ -89,6 +89,20 @@ func main() {
 	statsCmd.Flags().BoolVar(&statsWatch, "watch", false, "Continuously update every 2s")
 	statsCmd.Flags().BoolVar(&statsJSON, "json", false, "Output as JSON")
 
+	var scanJSON bool
+	var scanWrite bool
+
+	scanCmd := &cobra.Command{
+		Use:   "scan",
+		Short: "Auto-detect apps in project tree",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runScan(scanJSON, scanWrite)
+		},
+	}
+
+	scanCmd.Flags().BoolVar(&scanJSON, "json", false, "Output as JSON")
+	scanCmd.Flags().BoolVar(&scanWrite, "write", false, "Write detected apps to apps.json")
+
 	devCmd := &cobra.Command{
 		Use:   "dev",
 		Short: "Development mode with auto-rebuild on source changes",
@@ -97,7 +111,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(pingCmd, statusCmd, addCmd, statsCmd, devCmd)
+	rootCmd.AddCommand(pingCmd, statusCmd, addCmd, statsCmd, scanCmd, devCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -422,6 +436,98 @@ func runStats(watch, jsonOut bool) error {
 		time.Sleep(2 * time.Second)
 	}
 
+	return nil
+}
+
+func runScan(jsonOut, autoWrite bool) error {
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return fmt.Errorf("could not find project root: %w", err)
+	}
+
+	apps, err := config.Load(projectRoot)
+	if err != nil {
+		return fmt.Errorf("could not load config: %w", err)
+	}
+
+	candidates := config.DetectApps(projectRoot, apps)
+
+	if len(candidates) == 0 {
+		fmt.Println("No new apps detected.")
+		return nil
+	}
+
+	if jsonOut {
+		data, err := json.MarshalIndent(candidates, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling JSON: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	if !autoWrite {
+		fmt.Printf("Detected %d app(s):\n\n", len(candidates))
+		fmt.Printf("  %-20s %-30s %-20s %s\n", "NAME", "DIR", "COMMAND", "PORTS")
+		for _, c := range candidates {
+			portStrs := make([]string, len(c.Ports))
+			for i, p := range c.Ports {
+				portStrs[i] = fmt.Sprintf("%d", p)
+			}
+			fmt.Printf("  %-20s %-30s %-20s %s\n", c.Name, c.Dir, c.Command, strings.Join(portStrs, ","))
+		}
+		fmt.Printf("\nRun with --write to add these to apps.json.\n")
+		return nil
+	}
+
+	// --write mode: add candidates to apps.json
+	existingNames := make(map[string]bool)
+	for _, a := range apps {
+		existingNames[a.Name] = true
+	}
+
+	var added []string
+	for _, c := range candidates {
+		name := c.Name
+
+		// Auto-resolve name collisions
+		if existingNames[name] {
+			suffix := 2
+			for existingNames[fmt.Sprintf("%s-%d", c.Name, suffix)] {
+				suffix++
+			}
+			name = fmt.Sprintf("%s-%d", c.Name, suffix)
+		}
+
+		app := config.App{
+			Name:    name,
+			Dir:     c.Dir,
+			Command: c.Command,
+			Ports:   c.Ports,
+		}
+		if err := app.Validate(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping %q: %v\n", name, err)
+			continue
+		}
+
+		apps = append(apps, app)
+		existingNames[name] = true
+		added = append(added, name)
+	}
+
+	if len(added) == 0 {
+		fmt.Println("No valid apps to add.")
+		return nil
+	}
+
+	if err := config.Save(projectRoot, apps); err != nil {
+		return fmt.Errorf("could not save config: %w", err)
+	}
+
+	fmt.Printf("Added %d app(s) to apps.json:\n", len(added))
+	for _, name := range added {
+		fmt.Printf("  + %s\n", name)
+	}
 	return nil
 }
 

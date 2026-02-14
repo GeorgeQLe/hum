@@ -47,6 +47,7 @@ devctl ping                          # check if TUI is running
 devctl status                        # list apps with status, PID, ports
 devctl add <dir> [--name n] [--command c] [--ports p1,p2] [--start]
 devctl stats [--watch] [--json]      # resource usage (CPU, memory, uptime)
+devctl scan [--json] [--write]       # auto-detect apps in project tree
 ```
 
 ## TUI commands (type `:` in the TUI to open the command line)
@@ -144,10 +145,21 @@ Starting `web` will start `db` and `api` first if they aren't already running.
 
 ## Common workflows
 
+### Setting up a new project (no apps.json yet)
+
+**Always prefer auto-detection over hand-writing apps.json.**
+
+1. Run `devctl scan` to preview what the scanner finds
+2. Run `devctl scan --write` to auto-detect apps and write them to `apps.json`
+3. Review the generated `apps.json` — add anything the scanner missed via `devctl add <dir>` or by editing `apps.json` directly
+4. Start everything: `devctl --start-all`
+
+**Never hand-write a large apps.json from scratch.** The scanner detects package managers, dev scripts, and ports automatically. Manual entries are error-prone and hard to validate.
+
 ### Add a new service to the project
 
-1. Check if devctl can auto-detect it: `scan`
-2. Or add manually: `add` (interactive) or edit `apps.json` directly then `reload`
+1. Check if devctl can auto-detect it: `devctl scan` or TUI `:scan`
+2. Or add manually: `devctl add <dir>`, TUI `:add`, or edit `apps.json` directly then `:reload`
 3. Start it: `start <name>`
 
 ### Debug a crashing service
