@@ -1,12 +1,14 @@
 package process
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -16,12 +18,13 @@ type Status string
 
 const (
 	StatusStopped  Status = "stopped"
+	StatusStarting Status = "starting"
 	StatusRunning  Status = "running"
 	StatusStopping Status = "stopping"
 	StatusCrashed  Status = "crashed"
 
 	stopTimeout     = 5 * time.Second
-	eventChannelSize = 256
+	eventChannelSize = 1024
 )
 
 // Entry tracks a managed process and its metadata.
@@ -115,6 +118,7 @@ type Manager struct {
 	mu            sync.Mutex
 	eventCh       chan ProcessEvent
 	vaultResolver VaultResolver
+	droppedEvents atomic.Int64
 }
 
 // NewManager creates a new process manager.
@@ -157,6 +161,9 @@ func (m *Manager) ResolveEnv(plainEnv map[string]string, vaultEnv string) map[st
 }
 
 // Events returns the channel for process events.
+// Consumers must use select when receiving from this channel to avoid
+// blocking the event producer. The channel has a buffer of eventChannelSize
+// but will drop events if the consumer falls behind.
 func (m *Manager) Events() <-chan ProcessEvent {
 	return m.eventCh
 }
@@ -183,11 +190,13 @@ func (m *Manager) GetEntry(name string) *Entry {
 // GetStatus returns the status of an app.
 func (m *Manager) GetStatus(name string) Status {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	e, ok := m.Entries[name]
+	m.mu.Unlock()
 	if !ok {
 		return StatusStopped
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.Status
 }
 
@@ -197,15 +206,24 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 	m.mu.Lock()
 	existing, hasExisting := m.Entries[name]
 	if hasExisting {
-		if existing.Status == StatusRunning {
+		existing.mu.Lock()
+		status := existing.Status
+		existing.mu.Unlock()
+		if status == StatusRunning || status == StatusStarting {
 			m.mu.Unlock()
 			return fmt.Errorf("%s is already running", name)
 		}
-		if existing.Status == StatusStopping {
+		if status == StatusStopping {
 			m.mu.Unlock()
 			return fmt.Errorf("%s is still stopping", name)
 		}
 	}
+	// Set a starting sentinel to prevent concurrent Start calls
+	startingEntry := &Entry{
+		Status: StatusStarting,
+		doneCh: make(chan struct{}),
+	}
+	m.Entries[name] = startingEntry
 	m.mu.Unlock()
 
 	fullDir := dir
@@ -231,14 +249,23 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		m.mu.Lock()
+		delete(m.Entries, name)
+		m.mu.Unlock()
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		m.mu.Lock()
+		delete(m.Entries, name)
+		m.mu.Unlock()
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		m.mu.Lock()
+		delete(m.Entries, name)
+		m.mu.Unlock()
 		m.sendEvent(ProcessEvent{
 			AppName: name,
 			Type:    EventError,
@@ -256,8 +283,10 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 
 	// Preserve restart count from previous entry
 	if hasExisting {
+		existing.mu.Lock()
 		entry.RestartCount = existing.RestartCount
 		entry.AutoRestartDisabled = existing.AutoRestartDisabled
+		existing.mu.Unlock()
 	}
 
 	m.mu.Lock()
@@ -297,6 +326,7 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 		err := cmd.Wait()
 		entry.mu.Lock()
 		wasStopping := entry.Status == StatusStopping
+		exitCode := -1
 		if wasStopping {
 			entry.Status = StatusStopped
 			entry.RestartCount = 0
@@ -304,6 +334,7 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 			entry.Status = StatusCrashed
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				entry.ExitCode = exitErr.ExitCode()
+				exitCode = exitErr.ExitCode()
 			}
 		}
 		entry.Cmd = nil
@@ -318,10 +349,6 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 				Message: fmt.Sprintf("Stopped %s.", name),
 			})
 		} else {
-			exitCode := -1
-			if entry.ExitCode != 0 {
-				exitCode = entry.ExitCode
-			}
 			buf := m.GetLogBuffer(name)
 			buf.Append(fmt.Sprintf("[%s] exited (code=%d)", name, exitCode), false)
 			m.sendEvent(ProcessEvent{
@@ -391,7 +418,10 @@ func (m *Manager) StopAll() {
 	m.mu.Lock()
 	var running []string
 	for name, e := range m.Entries {
-		if e.Status == StatusRunning {
+		e.mu.Lock()
+		isRunning := e.Status == StatusRunning
+		e.mu.Unlock()
+		if isRunning {
 			running = append(running, name)
 		}
 	}
@@ -411,9 +441,14 @@ func (m *Manager) StopAll() {
 // PID returns the PID of the running process, or 0.
 func (m *Manager) PID(name string) int {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	e, ok := m.Entries[name]
-	if !ok || e.Cmd == nil || e.Cmd.Process == nil {
+	m.mu.Unlock()
+	if !ok {
+		return 0
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.Cmd == nil || e.Cmd.Process == nil {
 		return 0
 	}
 	return e.Cmd.Process.Pid
@@ -422,9 +457,14 @@ func (m *Manager) PID(name string) int {
 // Uptime returns the duration since the process was started.
 func (m *Manager) Uptime(name string) time.Duration {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	e, ok := m.Entries[name]
-	if !ok || e.Status != StatusRunning {
+	m.mu.Unlock()
+	if !ok {
+		return 0
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.Status != StatusRunning {
 		return 0
 	}
 	return time.Since(e.StartedAt)
@@ -466,8 +506,12 @@ func (m *Manager) ClearErrors(name string) {
 // ClearAllErrors clears captured errors for all apps.
 func (m *Manager) ClearAllErrors() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	buffers := make([]*ErrorBuffer, 0, len(m.ErrorBuffers))
 	for _, buf := range m.ErrorBuffers {
+		buffers = append(buffers, buf)
+	}
+	m.mu.Unlock()
+	for _, buf := range buffers {
 		buf.Clear()
 	}
 }
@@ -486,7 +530,10 @@ func (m *Manager) FindDevctlOwner(pid int) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for name, e := range m.Entries {
-		if e.Status == StatusRunning && e.Cmd != nil && e.Cmd.Process != nil && e.Cmd.Process.Pid == pid {
+		e.mu.Lock()
+		isMatch := e.Status == StatusRunning && e.Cmd != nil && e.Cmd.Process != nil && e.Cmd.Process.Pid == pid
+		e.mu.Unlock()
+		if isMatch {
 			return name
 		}
 	}
@@ -544,7 +591,6 @@ func getProcessCommand(pid int) string {
 }
 
 func (m *Manager) readOutput(name string, r interface{ Read([]byte) (int, error) }, isStderr bool) {
-	buf := make([]byte, 4096)
 	logBuf := m.GetLogBuffer(name)
 	evtType := EventOutput
 	if isStderr {
@@ -553,31 +599,27 @@ func (m *Manager) readOutput(name string, r interface{ Read([]byte) (int, error)
 
 	errBuf := m.GetErrorBuffer(name)
 
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			text := string(buf[:n])
-			indices := logBuf.Append(text, isStderr)
-			m.sendEvent(ProcessEvent{
-				AppName: name,
-				Type:    evtType,
-				Message: text,
-			})
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		text := scanner.Text()
+		indices := logBuf.Append(text+"\n", isStderr)
+		m.sendEvent(ProcessEvent{
+			AppName: name,
+			Type:    evtType,
+			Message: text + "\n",
+		})
 
-			// Check new lines for error patterns using the detector
-			for _, idx := range indices {
-				if line, ok := logBuf.GetLine(idx); ok && m.ErrorDetector.IsError(line.Text) {
-					errBuf.CaptureError(logBuf, idx)
-					m.sendEvent(ProcessEvent{
-						AppName: name,
-						Type:    EventErrorDetected,
-						Message: "Error detected",
-					})
-				}
+		// Check new lines for error patterns using the detector
+		for _, idx := range indices {
+			if line, ok := logBuf.GetLine(idx); ok && m.ErrorDetector.IsError(line.Text) {
+				errBuf.CaptureError(logBuf, idx)
+				m.sendEvent(ProcessEvent{
+					AppName: name,
+					Type:    EventErrorDetected,
+					Message: "Error detected",
+				})
 			}
-		}
-		if err != nil {
-			return
 		}
 	}
 }
@@ -586,17 +628,24 @@ func (m *Manager) sendEvent(evt ProcessEvent) {
 	select {
 	case m.eventCh <- evt:
 	default:
+		m.droppedEvents.Add(1)
 		// Channel full — use a short timeout so critical events (crashes, errors)
 		// have a better chance of being delivered.
 		if evt.Type == EventCrashed || evt.Type == EventErrorDetected || evt.Type == EventError {
 			select {
 			case m.eventCh <- evt:
+				m.droppedEvents.Add(-1)
 			case <-time.After(100 * time.Millisecond):
 				// Truly full; log to stderr as last resort
 				fmt.Fprintf(os.Stderr, "devctl: event channel full, dropped %s event for %s\n", eventTypeName(evt.Type), evt.AppName)
 			}
 		}
 	}
+}
+
+// DroppedEvents returns the total number of events dropped due to a full channel.
+func (m *Manager) DroppedEvents() int64 {
+	return m.droppedEvents.Load()
 }
 
 func eventTypeName(t EventType) string {
