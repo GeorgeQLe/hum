@@ -1,6 +1,8 @@
 # Binary
-devctl
+/devctl
 devctl.exe
+/envsafe
+envsafe.exe
 
 # Go
 *.test
@@ -14,6 +16,10 @@ devctl.exe
 .vscode/
 *.swp
 *.swo
+
+# Web UI
+web/node_modules/
+web/dist/
 
 # OS
 .DS_Store

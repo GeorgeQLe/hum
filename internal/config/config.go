@@ -29,6 +29,7 @@ type App struct {
 	RestartDelay   *int                  `json:"restartDelay,omitempty"`
 	MaxRestarts    *int                  `json:"maxRestarts,omitempty"`
 	Env            map[string]string     `json:"env,omitempty"`
+	VaultEnv       string                `json:"vault_env,omitempty"`
 	DependsOn      []string              `json:"dependsOn,omitempty"`
 	Group          string                `json:"group,omitempty"`
 	HealthCheck    *HealthCheckConfig    `json:"healthCheck,omitempty"`
@@ -149,6 +150,9 @@ func Save(projectRoot string, apps []App) error {
 		if len(a.Env) > 0 {
 			clean[i].Env = a.Env
 		}
+		if a.VaultEnv != "" {
+			clean[i].VaultEnv = a.VaultEnv
+		}
 		if len(a.DependsOn) > 0 {
 			clean[i].DependsOn = a.DependsOn
 		}
@@ -197,6 +201,9 @@ func HasChanged(old, new App) bool {
 		return true
 	}
 	if !mapsEqual(old.Env, new.Env) {
+		return true
+	}
+	if old.VaultEnv != new.VaultEnv {
 		return true
 	}
 	if !slicesEqual(old.DependsOn, new.DependsOn) {

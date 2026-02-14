@@ -15,6 +15,7 @@ import (
 	"github.com/georgele/devctl/internal/ipc"
 	"github.com/georgele/devctl/internal/process"
 	"github.com/georgele/devctl/internal/state"
+	"github.com/georgele/devctl/internal/vault"
 )
 
 // Focus area
@@ -154,9 +155,22 @@ type portConflictMsg struct {
 	}
 }
 
+// appEnv returns the resolved environment variables for an app,
+// merging vault secrets with plain-text env vars.
+func (m *Model) appEnv(env map[string]string, vaultEnv string) map[string]string {
+	return m.procManager.ResolveEnv(env, vaultEnv)
+}
+
 // New creates a new Model with the given configuration.
 func New(projectRoot string, apps []config.App, startAll, restore bool) Model {
 	pm := process.NewManager(projectRoot)
+
+	// Set up vault resolver for encrypted env vars
+	if vault.Exists(projectRoot) {
+		pm.SetVaultResolver(func(root string, plainEnv map[string]string, vaultEnv string) (map[string]string, error) {
+			return vault.ResolveEnv(root, plainEnv, vaultEnv)
+		})
+	}
 
 	// Ensure system log buffer exists
 	pm.GetLogBuffer(systemName)
@@ -1411,7 +1425,7 @@ func (m Model) handleRun(args string) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		m.procManager.Restart(app.Name, cmd, app.Dir, app.Env)
+		m.procManager.Restart(app.Name, cmd, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 		return commandDoneMsg{}
 	}
 }
@@ -1536,7 +1550,7 @@ func (m *Model) startWithPortCheck(app *config.App) tea.Cmd {
 
 		if len(taken) == 0 {
 			// No conflicts, just start
-			m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+			m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 			return commandDoneMsg{}
 		}
 
@@ -1589,7 +1603,7 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 	if conflict.owner == nil {
 		m.askQuestion(fmt.Sprintf("Port %d in use. Start %s anyway? (y/N): ", conflict.port, msg.appName), func(answer string) {
 			if strings.ToLower(answer) == "y" {
-				m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+				m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 			} else {
 				logBuf := m.procManager.GetLogBuffer(app.Name)
 				logBuf.Append("Start cancelled.", false)
@@ -1606,24 +1620,24 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 				// Look up the conflicting app's command/dir
 				conflictApp := m.findApp(devctlApp)
 				if conflictApp != nil {
-					m.procManager.Restart(devctlApp, conflictApp.Command, conflictApp.Dir, conflictApp.Env)
+					m.procManager.Restart(devctlApp, conflictApp.Command, conflictApp.Dir, m.appEnv(conflictApp.Env, conflictApp.VaultEnv))
 				}
 				if !process.WaitForPortFree(conflict.port, 2*time.Second) {
 					m.systemLog(fmt.Sprintf("Port %d still in use after restart — start aborted.", conflict.port))
 					return
 				}
-				m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+				m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 			case "a":
 				altPort := process.SuggestAlternativePort(conflict.port)
 				if altPort > 0 {
 					m.systemLog(fmt.Sprintf("Using alternative port %d for %s", altPort, app.Name))
 					modifiedCmd := fmt.Sprintf("PORT=%d %s", altPort, app.Command)
-					m.procManager.Start(app.Name, modifiedCmd, app.Dir, app.Env)
+					m.procManager.Start(app.Name, modifiedCmd, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 				} else {
 					m.systemLog("No alternative port found.")
 				}
 			case "s":
-				m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+				m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 			case "c", "":
 				logBuf := m.procManager.GetLogBuffer(app.Name)
 				logBuf.Append("Start cancelled.", false)
@@ -1640,18 +1654,18 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 					m.systemLog(fmt.Sprintf("Port %d still in use after killing PID %d — start aborted.", conflict.port, conflict.owner.PID))
 					return
 				}
-				m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+				m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 			case "a":
 				altPort := process.SuggestAlternativePort(conflict.port)
 				if altPort > 0 {
 					m.systemLog(fmt.Sprintf("Using alternative port %d for %s", altPort, app.Name))
 					modifiedCmd := fmt.Sprintf("PORT=%d %s", altPort, app.Command)
-					m.procManager.Start(app.Name, modifiedCmd, app.Dir, app.Env)
+					m.procManager.Start(app.Name, modifiedCmd, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 				} else {
 					m.systemLog("No alternative port found.")
 				}
 			case "s":
-				m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+				m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 			case "c", "":
 				logBuf := m.procManager.GetLogBuffer(app.Name)
 				logBuf.Append("Start cancelled.", false)
@@ -1975,7 +1989,7 @@ func (m Model) handleReload() (tea.Model, tea.Cmd) {
 				newApp := newMap[n]
 				m.askQuestion(fmt.Sprintf("%s is running with old config. Restart with new config? (y/N): ", n), func(answer string) {
 					if strings.ToLower(answer) == "y" {
-						m.procManager.Restart(n, newApp.Command, newApp.Dir, newApp.Env)
+						m.procManager.Restart(n, newApp.Command, newApp.Dir, m.appEnv(newApp.Env, newApp.VaultEnv))
 						m.systemLog(fmt.Sprintf("Restarted %s with new config.", n))
 					}
 				})
@@ -2015,11 +2029,11 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 				}
 				switch action {
 				case "start":
-					m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+					m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 				case "stop":
 					m.procManager.Stop(app.Name)
 				case "restart":
-					m.procManager.Restart(app.Name, app.Command, app.Dir, app.Env)
+					m.procManager.Restart(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 				}
 			}
 			return commandDoneMsg{}
@@ -2062,7 +2076,7 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 						}
 					}
 					if !hasConflict {
-						m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+						m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 					}
 				}
 				// Return conflict messages for individual resolution (B2)
@@ -2102,7 +2116,7 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 							depApp := m.findApp(depName)
 							if depApp != nil {
 								m.systemLog(fmt.Sprintf("Starting dependency %s for %s", depName, target))
-								m.procManager.Start(depApp.Name, depApp.Command, depApp.Dir, depApp.Env)
+								m.procManager.Start(depApp.Name, depApp.Command, depApp.Dir, m.appEnv(depApp.Env, depApp.VaultEnv))
 							}
 						}
 					}
@@ -2123,7 +2137,7 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 					if len(taken) > 0 {
 						return portConflictMsg{appName: app.Name, conflicts: taken}
 					}
-					m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+					m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 				}
 			}
 		case "stop":
@@ -2159,7 +2173,7 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 					if len(taken) > 0 {
 						return portConflictMsg{appName: app.Name, conflicts: taken}
 					}
-					m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+					m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 				}
 			} else {
 				app := m.findApp(target)
@@ -2186,7 +2200,7 @@ func (m Model) executeAsync(action, target string) tea.Cmd {
 					if len(taken) > 0 {
 						return portConflictMsg{appName: app.Name, conflicts: taken}
 					}
-					m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+					m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 				}
 			}
 		}
@@ -2211,7 +2225,7 @@ func (m Model) startAllCmd() tea.Cmd {
 			sorted = m.apps
 		}
 		for _, app := range sorted {
-			m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+			m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 		}
 		return commandDoneMsg{}
 	}
@@ -2269,7 +2283,7 @@ func (m Model) restoreSessionCmd() tea.Cmd {
 				skippedConflicts = append(skippedConflicts, app.Name)
 				continue
 			}
-			m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+			m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 			restored++
 		}
 		if len(skippedConflicts) > 0 {
@@ -2540,7 +2554,7 @@ func (m *Model) handleIPCAddApp(msg ipc.IPCRequestMsg) {
 
 	// Optionally auto-start
 	if msg.Request.AutoStart {
-		go m.procManager.Start(app.Name, app.Command, app.Dir, app.Env)
+		go m.procManager.Start(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
 	}
 
 	msg.ResponseCh <- ipc.Response{

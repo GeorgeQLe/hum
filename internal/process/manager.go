@@ -102,6 +102,9 @@ const (
 	EventErrorDetected
 )
 
+// VaultResolver resolves environment variables from an encrypted vault.
+type VaultResolver func(projectRoot string, plainEnv map[string]string, vaultEnv string) (map[string]string, error)
+
 // Manager handles spawning, stopping, and monitoring processes.
 type Manager struct {
 	ProjectRoot   string
@@ -111,6 +114,7 @@ type Manager struct {
 	ErrorDetector *ErrorDetector
 	mu            sync.Mutex
 	eventCh       chan ProcessEvent
+	vaultResolver VaultResolver
 }
 
 // NewManager creates a new process manager.
@@ -123,6 +127,33 @@ func NewManager(projectRoot string) *Manager {
 		ErrorDetector: NewErrorDetector(),
 		eventCh:       make(chan ProcessEvent, eventChannelSize),
 	}
+}
+
+// SetVaultResolver sets the function used to resolve vault environment variables.
+func (m *Manager) SetVaultResolver(resolver VaultResolver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.vaultResolver = resolver
+}
+
+// ResolveEnv merges plain-text env vars with vault secrets for a given vault environment.
+// If vaultEnv is empty or no resolver is set, returns plainEnv unchanged.
+func (m *Manager) ResolveEnv(plainEnv map[string]string, vaultEnv string) map[string]string {
+	m.mu.Lock()
+	resolver := m.vaultResolver
+	m.mu.Unlock()
+
+	if vaultEnv == "" || resolver == nil {
+		return plainEnv
+	}
+
+	resolved, err := resolver(m.ProjectRoot, plainEnv, vaultEnv)
+	if err != nil {
+		buf := m.GetLogBuffer("devctl")
+		buf.Append(fmt.Sprintf("Warning: vault resolution failed: %v", err), false)
+		return plainEnv
+	}
+	return resolved
 }
 
 // Events returns the channel for process events.
