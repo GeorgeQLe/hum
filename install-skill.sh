@@ -46,6 +46,9 @@ devctl --restore      # launch TUI and restore previous session state
 devctl ping                          # check if TUI is running
 devctl status                        # list apps with status, PID, ports
 devctl add <dir> [--name n] [--command c] [--ports p1,p2] [--start]
+devctl start <name|all>              # start an app (auto-resolves port conflicts)
+devctl stop <name|all>               # stop an app
+devctl restart <name|all>            # restart an app
 devctl stats [--watch] [--json]      # resource usage (CPU, memory, uptime)
 devctl scan [--json] [--write]       # auto-detect apps in project tree
 ```
@@ -158,9 +161,13 @@ Starting `web` will start `db` and `api` first if they aren't already running.
 
 ### Add a new service to the project
 
-1. Check if devctl can auto-detect it: `devctl scan` or TUI `:scan`
-2. Or add manually: `devctl add <dir>`, TUI `:add`, or edit `apps.json` directly then `:reload`
-3. Start it: `start <name>`
+Preferred one-liner: `devctl add <dir> --start` — auto-detects name, command, and ports, then starts the app.
+
+If auto-detection doesn't cover your case:
+1. Check what the scanner finds: `devctl scan`
+2. Add manually with overrides: `devctl add <dir> --name myapp --command "node server.js" --ports 3000`
+3. Or edit `apps.json` directly then `:reload` in the TUI
+4. Start it: `devctl start <name>`
 
 ### Debug a crashing service
 
@@ -186,6 +193,29 @@ Or in the TUI: `top`
 export <name>             # writes <name>-<timestamp>.log
 export <name> output.log  # writes to specific file
 ```
+
+## Agent workflow
+
+When using devctl from an AI agent (e.g. Claude Code), follow this recommended flow:
+
+1. **Register and start in one step**: `devctl add <dir> --start`
+   - Auto-detects app name, command, and ports from `package.json`
+   - When ports can't be detected, devctl assigns a free port and injects `PORT=<port>` env var
+   - If the TUI is not running, `add` writes to `apps.json` directly (but can't `--start`)
+
+2. **Control apps after registration**:
+   - `devctl start <name|all>` — starts an app (auto-resolves port conflicts)
+   - `devctl stop <name|all>` — stops an app
+   - `devctl restart <name|all>` — restarts an app
+
+3. **Manual overrides** when detection is wrong:
+   - `--name <name>` — override detected app name
+   - `--command <cmd>` — override detected command (e.g. `"node server.js"`)
+   - `--ports <p1,p2>` — override detected ports
+
+4. **Bulk setup**: `devctl scan --write` detects all apps in the project tree and writes them to `apps.json` with auto-assigned ports where needed.
+
+5. **Check status**: `devctl status` shows all apps with their state, PID, and ports.
 BODY
 
 # --- Write SKILL.md ---

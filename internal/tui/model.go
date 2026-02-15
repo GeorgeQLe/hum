@@ -2715,6 +2715,15 @@ func (m *Model) handleIPCRequest(msg ipc.IPCRequestMsg) {
 		}
 		msg.ResponseCh <- ipc.Response{OK: true}
 
+	case "start":
+		m.handleIPCStartStopRestart(msg, "start")
+
+	case "stop":
+		m.handleIPCStartStopRestart(msg, "stop")
+
+	case "restart":
+		m.handleIPCStartStopRestart(msg, "restart")
+
 	default:
 		msg.ResponseCh <- ipc.Response{
 			OK:    false,
@@ -2796,6 +2805,71 @@ func (m *Model) handleIPCAddApp(msg ipc.IPCRequestMsg) {
 		OK:      true,
 		Name:    entry.Name,
 		Message: fmt.Sprintf("Added \"%s\" to devctl", entry.Name),
+	}
+}
+
+func (m *Model) handleIPCStartStopRestart(msg ipc.IPCRequestMsg, action string) {
+	target := msg.Request.Target
+	if target == "" {
+		msg.ResponseCh <- ipc.Response{OK: false, Error: "Missing target (app name or \"all\")"}
+		return
+	}
+
+	if target == "all" {
+		var results []string
+		for _, app := range m.apps {
+			result := m.ipcAppAction(app, action)
+			results = append(results, result)
+		}
+		msg.ResponseCh <- ipc.Response{
+			OK:      true,
+			Message: strings.Join(results, "; "),
+		}
+		return
+	}
+
+	app := m.findApp(target)
+	if app == nil {
+		msg.ResponseCh <- ipc.Response{OK: false, Error: fmt.Sprintf("App %q not found", target)}
+		return
+	}
+
+	result := m.ipcAppAction(*app, action)
+	msg.ResponseCh <- ipc.Response{OK: true, Name: app.Name, Message: result}
+}
+
+func (m *Model) ipcAppAction(app config.App, action string) string {
+	switch action {
+	case "start":
+		status := m.procManager.GetStatus(app.Name)
+		if status == process.StatusRunning {
+			return fmt.Sprintf("%s is already running", app.Name)
+		}
+		// Check for port conflicts and auto-resolve
+		cmd := app.Command
+		for _, port := range app.Ports {
+			if !process.IsPortFree(port) {
+				altPort := process.SuggestAlternativePort(port)
+				if altPort > 0 {
+					m.systemLog(fmt.Sprintf("[ipc] Port %d in use, using %d for %s", port, altPort, app.Name))
+					cmd = fmt.Sprintf("PORT=%d %s", altPort, cmd)
+				}
+			}
+		}
+		go m.procManager.Start(app.Name, cmd, app.Dir, m.appEnv(app.Env, app.VaultEnv))
+		return fmt.Sprintf("%s starting", app.Name)
+	case "stop":
+		status := m.procManager.GetStatus(app.Name)
+		if status != process.StatusRunning {
+			return fmt.Sprintf("%s is not running", app.Name)
+		}
+		m.procManager.Stop(app.Name)
+		return fmt.Sprintf("%s stopping", app.Name)
+	case "restart":
+		go m.procManager.Restart(app.Name, app.Command, app.Dir, m.appEnv(app.Env, app.VaultEnv))
+		return fmt.Sprintf("%s restarting", app.Name)
+	default:
+		return fmt.Sprintf("unknown action %s", action)
 	}
 }
 

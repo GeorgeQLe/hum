@@ -73,6 +73,24 @@ func SuggestAlternativePort(basePort int) int {
 	return 0
 }
 
+// FindFreePort scans upward from basePort to find an available port,
+// skipping ports in usedPorts and checking OS availability.
+func FindFreePort(usedPorts []int, basePort int) int {
+	used := make(map[int]bool, len(usedPorts))
+	for _, p := range usedPorts {
+		used[p] = true
+	}
+	for port := basePort; port <= 9999; port++ {
+		if used[port] {
+			continue
+		}
+		if IsPortFree(port) {
+			return port
+		}
+	}
+	return 0
+}
+
 // WaitForPortFree waits up to timeout for a port to become free.
 func WaitForPortFree(port int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)

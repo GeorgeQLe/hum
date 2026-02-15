@@ -24,6 +24,7 @@ type Request struct {
 	Cwd       string          `json:"cwd,omitempty"`
 	AutoStart bool            `json:"autoStart,omitempty"`
 	Message   string          `json:"message,omitempty"`
+	Target    string          `json:"target,omitempty"` // app name or "all"
 }
 
 // Response represents an IPC response to a client.

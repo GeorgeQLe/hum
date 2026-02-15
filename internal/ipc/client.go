@@ -85,3 +85,18 @@ func (c *Client) Stats() (*Response, error) {
 func (c *Client) BuildError(msg string) (*Response, error) {
 	return c.Send(Request{Action: "build-error", Message: msg})
 }
+
+// StartApp sends a start command for the given app (or "all").
+func (c *Client) StartApp(name string) (*Response, error) {
+	return c.Send(Request{Action: "start", Target: name})
+}
+
+// StopApp sends a stop command for the given app (or "all").
+func (c *Client) StopApp(name string) (*Response, error) {
+	return c.Send(Request{Action: "stop", Target: name})
+}
+
+// RestartApp sends a restart command for the given app (or "all").
+func (c *Client) RestartApp(name string) (*Response, error) {
+	return c.Send(Request{Action: "restart", Target: name})
+}

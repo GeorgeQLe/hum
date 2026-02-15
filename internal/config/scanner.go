@@ -13,15 +13,24 @@ var (
 	excludeTscWatch  = regexp.MustCompile(`\btsc\b.*--watch`)
 	excludeTsupWatch = regexp.MustCompile(`\btsup\b.*--watch`)
 
-	serverNext    = regexp.MustCompile(`\bnext\b`)
-	serverVite    = regexp.MustCompile(`\bvite\b`)
+	serverNext     = regexp.MustCompile(`\bnext\b`)
+	serverVite     = regexp.MustCompile(`\bvite\b`)
 	serverWrangler = regexp.MustCompile(`\bwrangler\b`)
-	serverExpo    = regexp.MustCompile(`\bexpo\b`)
-	serverNodemon = regexp.MustCompile(`\bnodemon\b`)
-	serverTsx     = regexp.MustCompile(`\btsx\s+watch\b`)
-	serverPort    = regexp.MustCompile(`\bPORT=`)
+	serverExpo     = regexp.MustCompile(`\bexpo\b`)
+	serverNodemon  = regexp.MustCompile(`\bnodemon\b`)
+	serverTsx      = regexp.MustCompile(`\btsx\s+watch\b`)
+	serverPort     = regexp.MustCompile(`\bPORT=`)
 	serverPortFlag = regexp.MustCompile(`--port\b`)
-	serverPFlag   = regexp.MustCompile(`-p\s+\d+`)
+	serverPFlag    = regexp.MustCompile(`-p\s+\d+`)
+	serverNode     = regexp.MustCompile(`\bnode\s+\S`)
+	serverTsNode   = regexp.MustCompile(`\bts-node\b`)
+	serverRemix    = regexp.MustCompile(`\bremix\b`)
+	serverNuxt     = regexp.MustCompile(`\bnuxt\b`)
+	serverAstro    = regexp.MustCompile(`\bastro\b`)
+	serverSvelte   = regexp.MustCompile(`\bsvelte-kit\b|@sveltejs/kit`)
+	serverServe    = regexp.MustCompile(`\bserve\b|http-server`)
+	serverHono     = regexp.MustCompile(`\bhono\b`)
+	serverFastify  = regexp.MustCompile(`\bfastify\b`)
 
 	portEnvRe     = regexp.MustCompile(`PORT=(\d+)`)
 	portFlagRe    = regexp.MustCompile(`(?:-p\s+|--port\s+)(\d+)`)
@@ -91,18 +100,25 @@ func DetectApps(projectRoot string, existingApps []App) []ScanCandidate {
 		if monorepoRoots[f.fullPath] {
 			continue
 		}
+
+		// Try scripts.dev first, then fall back to scripts.start
 		devScript := f.pkg.Scripts["dev"]
+		scriptName := "dev"
 		if !IsServerDevScript(devScript) {
-			continue
+			startScript := f.pkg.Scripts["start"]
+			if IsServerDevScript(startScript) {
+				devScript = startScript
+				scriptName = "start"
+			} else {
+				continue
+			}
 		}
+
 		if registeredDirs[f.fullPath] {
 			continue
 		}
 
 		ports := DetectPorts(devScript, f.fullPath)
-		if len(ports) == 0 {
-			continue
-		}
 
 		relDir, err := filepath.Rel(projectRoot, f.fullPath)
 		if err != nil {
@@ -110,7 +126,7 @@ func DetectApps(projectRoot string, existingApps []App) []ScanCandidate {
 		}
 		name := ExtractName(f.pkg.Name, relDir)
 		pm := DetectPackageManager(f.fullPath, f.pkg.PackageManager, projectRoot)
-		command := buildCommand(pm)
+		command := buildCommandForScript(pm, scriptName)
 
 		candidates = append(candidates, ScanCandidate{
 			Name:      name,
@@ -138,6 +154,11 @@ func ScanCurrentDir(dir, projectRoot string) (*ScanCandidate, error) {
 	}
 
 	devScript := pkg.Scripts["dev"]
+	scriptName := "dev"
+	if devScript == "" {
+		devScript = pkg.Scripts["start"]
+		scriptName = "start"
+	}
 	if devScript == "" {
 		return nil, nil
 	}
@@ -153,7 +174,7 @@ func ScanCurrentDir(dir, projectRoot string) (*ScanCandidate, error) {
 	name := ExtractName(pkg.Name, relDir)
 	ports := DetectPorts(devScript, dir)
 	pm := DetectPackageManager(dir, pkg.PackageManager, projectRoot)
-	command := buildCommand(pm)
+	command := buildCommandForScript(pm, scriptName)
 
 	return &ScanCandidate{
 		Name:      name,
@@ -179,7 +200,7 @@ func walkForPackageJSONs(baseDir string, maxDepth, depth int) []walkResult {
 	pkgPath := filepath.Join(baseDir, "package.json")
 	if data, err := os.ReadFile(pkgPath); err == nil {
 		var pkg packageJSON
-		if json.Unmarshal(data, &pkg) == nil && pkg.Scripts["dev"] != "" {
+		if json.Unmarshal(data, &pkg) == nil && (pkg.Scripts["dev"] != "" || pkg.Scripts["start"] != "") {
 			results = append(results, walkResult{fullPath: baseDir, pkg: pkg})
 		}
 	}
@@ -216,6 +237,8 @@ func IsServerDevScript(devScript string) bool {
 	serverPatterns := []*regexp.Regexp{
 		serverNext, serverVite, serverWrangler, serverExpo,
 		serverNodemon, serverTsx, serverPort, serverPortFlag, serverPFlag,
+		serverNode, serverTsNode, serverRemix, serverNuxt,
+		serverAstro, serverSvelte, serverServe, serverHono, serverFastify,
 	}
 	for _, re := range serverPatterns {
 		if re.MatchString(devScript) {
@@ -321,13 +344,20 @@ func DetectPackageManager(fullPath, packageManagerField, projectRoot string) str
 }
 
 func buildCommand(pm string) string {
+	return buildCommandForScript(pm, "dev")
+}
+
+func buildCommandForScript(pm, scriptName string) string {
 	switch pm {
 	case "pnpm":
-		return "pnpm dev"
+		return "pnpm " + scriptName
 	case "yarn":
-		return "yarn dev"
+		return "yarn " + scriptName
 	default:
-		return "npm run dev"
+		if scriptName == "start" {
+			return "npm start"
+		}
+		return "npm run " + scriptName
 	}
 }
 
