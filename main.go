@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/georgele/devctl/internal/api"
 	"github.com/georgele/devctl/internal/config"
 	"github.com/georgele/devctl/internal/dev"
 	"github.com/georgele/devctl/internal/ipc"
@@ -206,6 +207,16 @@ func runTUI(startAll, restore bool) error {
 }
 
 func runPing() error {
+	// Try HTTP API first
+	if apiClient, err := api.NewClientFromDiscovery(); err == nil {
+		if err := apiClient.Health(); err == nil {
+			info, _ := api.ReadDiscovery()
+			fmt.Printf("devctl is running (PID %d) — API on port %d\n", info.PID, info.Port)
+			return nil
+		}
+	}
+
+	// Fallback to IPC
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		return fmt.Errorf("could not find project root: %w", err)
@@ -227,6 +238,52 @@ func runPing() error {
 }
 
 func runStatus() error {
+	// Try HTTP API first
+	if apiClient, err := api.NewClientFromDiscovery(); err == nil {
+		data, err := apiClient.Status()
+		if err == nil {
+			var resp struct {
+				Apps []struct {
+					Name   string `json:"name"`
+					Status string `json:"status"`
+					PID    int    `json:"pid"`
+					Ports  []int  `json:"ports"`
+				} `json:"apps"`
+			}
+			if json.Unmarshal(data, &resp) == nil {
+				info, _ := api.ReadDiscovery()
+				fmt.Printf("devctl (PID %d) — API on port %d\n", info.PID, info.Port)
+				if len(resp.Apps) == 0 {
+					fmt.Println("  No apps configured.")
+					return nil
+				}
+				for _, app := range resp.Apps {
+					icon := "\033[90m○\033[0m"
+					if app.Status == "running" {
+						icon = "\033[32m●\033[0m"
+					} else if app.Status == "stopping" {
+						icon = "\033[33m●\033[0m"
+					}
+					pidStr := ""
+					if app.PID > 0 {
+						pidStr = fmt.Sprintf(" (PID %d)", app.PID)
+					}
+					portStrs := make([]string, len(app.Ports))
+					for i, p := range app.Ports {
+						portStrs[i] = fmt.Sprintf("%d", p)
+					}
+					portStr := ""
+					if len(portStrs) > 0 {
+						portStr = " :" + strings.Join(portStrs, ",")
+					}
+					fmt.Printf("  %s %s%s%s — %s\n", icon, app.Name, pidStr, portStr, app.Status)
+				}
+				return nil
+			}
+		}
+	}
+
+	// Fallback to IPC
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		return fmt.Errorf("could not find project root: %w", err)
@@ -438,6 +495,36 @@ func runAdd(dir, nameFlag, commandFlag, portsFlag string, autoStart bool) error 
 }
 
 func runAppAction(action, target string) error {
+	// Try HTTP API first
+	if apiClient, err := api.NewClientFromDiscovery(); err == nil {
+		var data []byte
+		var apiErr error
+		switch action {
+		case "start":
+			data, apiErr = apiClient.StartApp(target)
+		case "stop":
+			data, apiErr = apiClient.StopApp(target)
+		case "restart":
+			data, apiErr = apiClient.RestartApp(target)
+		default:
+			return fmt.Errorf("unknown action: %s", action)
+		}
+		if apiErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", apiErr)
+			os.Exit(1)
+		}
+		var resp struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(data, &resp) == nil && resp.Message != "" {
+			fmt.Println(resp.Message)
+		} else {
+			fmt.Printf("%s %s\n", target, action)
+		}
+		return nil
+	}
+
+	// Fallback to IPC
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		return fmt.Errorf("could not find project root: %w", err)
@@ -471,14 +558,72 @@ func runAppAction(action, target string) error {
 }
 
 func runStats(watch, jsonOut bool) error {
-	projectRoot, err := findProjectRoot()
-	if err != nil {
-		return fmt.Errorf("could not find project root: %w", err)
-	}
-
-	client := ipc.NewClient(projectRoot)
-
 	for {
+		// Try HTTP API first
+		if apiClient, apiErr := api.NewClientFromDiscovery(); apiErr == nil {
+			data, err := apiClient.Stats()
+			if err == nil {
+				if jsonOut {
+					fmt.Println(string(data))
+				} else {
+					if watch {
+						fmt.Print("\033[2J\033[H")
+					}
+					var resp struct {
+						Apps []struct {
+							Name    string  `json:"name"`
+							Status  string  `json:"status"`
+							PID     int     `json:"pid"`
+							CPU     float64 `json:"cpu"`
+							MemRSS  int64   `json:"memRss"`
+							MaxCPU  float64 `json:"maxCpu"`
+							MaxMem  int64   `json:"maxMem"`
+							Uptime  string  `json:"uptime"`
+							Samples int     `json:"samples"`
+						} `json:"apps"`
+					}
+					if json.Unmarshal(data, &resp) == nil {
+						info, _ := api.ReadDiscovery()
+						if info != nil {
+							fmt.Printf("devctl (PID %d) — API on port %d\n\n", info.PID, info.Port)
+						}
+						fmt.Printf("  %-20s %-10s %8s %10s %10s %10s %s\n",
+							"NAME", "STATUS", "CPU", "MEM", "PEAK CPU", "PEAK MEM", "UPTIME")
+						for _, app := range resp.Apps {
+							cpuStr, memStr, peakCPU, peakMem, uptime := "-", "-", "-", "-", "-"
+							if app.Status == "running" {
+								cpuStr = fmt.Sprintf("%.1f%%", app.CPU)
+								memStr = formatBytes(app.MemRSS)
+								if app.Samples > 0 {
+									peakCPU = fmt.Sprintf("%.1f%%", app.MaxCPU)
+									peakMem = formatBytes(app.MaxMem)
+								}
+								uptime = app.Uptime
+							}
+							icon := "\033[90m○\033[0m"
+							if app.Status == "running" {
+								icon = "\033[32m●\033[0m"
+							}
+							fmt.Printf("  %s %-20s %-10s %8s %10s %10s %10s %s\n",
+								icon, app.Name, app.Status, cpuStr, memStr, peakCPU, peakMem, uptime)
+						}
+					}
+				}
+				if !watch {
+					return nil
+				}
+				time.Sleep(2 * time.Second)
+				continue
+			}
+		}
+
+		// Fallback to IPC
+		projectRoot, err := findProjectRoot()
+		if err != nil {
+			return fmt.Errorf("could not find project root: %w", err)
+		}
+
+		client := ipc.NewClient(projectRoot)
 		resp, err := client.Stats()
 		if err != nil {
 			return fmt.Errorf("devctl is not running: %w", err)
@@ -497,7 +642,6 @@ func runStats(watch, jsonOut bool) error {
 			}
 		} else {
 			if watch {
-				// Clear screen
 				fmt.Print("\033[2J\033[H")
 			}
 			fmt.Printf("devctl (PID %d) — %s\n\n", resp.PID, resp.Project)

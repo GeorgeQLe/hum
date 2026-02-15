@@ -71,6 +71,13 @@ func renderSidebar(m *Model, rowIdx, width int) string {
 		} else {
 			label = styleDim.Render(label)
 		}
+		// Show approval badge
+		if m.approvalQueue != nil {
+			if count := m.approvalQueue.PendingCount(); count > 0 {
+				badge := fmt.Sprintf(" [%d]", count)
+				label += styleYellow.Render(badge)
+			}
+		}
 		return padRight(" "+label, width)
 	}
 

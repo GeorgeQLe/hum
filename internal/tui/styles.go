@@ -16,6 +16,7 @@ var (
 	styleStatusStopping = lipgloss.NewStyle().Foreground(colorYellow)
 	styleError      = lipgloss.NewStyle().Foreground(colorRed)
 	styleErrorCount = lipgloss.NewStyle().Foreground(colorYellow)
+	styleYellow     = lipgloss.NewStyle().Foreground(colorYellow)
 
 	// Box drawing characters
 	boxTL = "┌"

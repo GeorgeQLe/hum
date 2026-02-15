@@ -33,6 +33,8 @@ type App struct {
 	Dir            string                `json:"dir"`
 	Command        string                `json:"command"`
 	Ports          []int                 `json:"ports"`
+	Project        string                `json:"project,omitempty"`
+	AutoStart      bool                  `json:"autoStart,omitempty"`
 	AutoRestart    *bool                 `json:"autoRestart,omitempty"`
 	RestartDelay   *int                  `json:"restartDelay,omitempty"`
 	MaxRestarts    *int                  `json:"maxRestarts,omitempty"`
@@ -111,7 +113,7 @@ func ConfigPath(projectRoot string) string {
 
 // Load reads and parses apps.json from the project root.
 // Creates an empty apps.json if the file doesn't exist.
-// Returns an error if the file contains invalid JSON.
+// On corrupt JSON, attempts recovery from .bak file.
 func Load(projectRoot string) ([]App, error) {
 	configPath := ConfigPath(projectRoot)
 
@@ -129,7 +131,22 @@ func Load(projectRoot string) ([]App, error) {
 
 	var apps []App
 	if err := json.Unmarshal(data, &apps); err != nil {
-		return nil, fmt.Errorf("invalid JSON in %s: %w", configPath, err)
+		// Attempt recovery from backup
+		bakPath := configPath + ".bak"
+		bakData, bakErr := os.ReadFile(bakPath)
+		if bakErr == nil {
+			var bakApps []App
+			if json.Unmarshal(bakData, &bakApps) == nil {
+				fmt.Fprintf(os.Stderr, "warning: %s was corrupt, restored from backup\n", configPath)
+				// Restore the backup
+				os.WriteFile(configPath, bakData, 0644)
+				apps = bakApps
+			} else {
+				return nil, fmt.Errorf("invalid JSON in %s (backup also corrupt): %w", configPath, err)
+			}
+		} else {
+			return nil, fmt.Errorf("invalid JSON in %s: %w", configPath, err)
+		}
 	}
 
 	valid := make([]App, 0, len(apps))
@@ -143,7 +160,7 @@ func Load(projectRoot string) ([]App, error) {
 	return valid, nil
 }
 
-// Save writes the apps list to apps.json.
+// Save writes the apps list to apps.json with backup-on-write.
 func Save(projectRoot string, apps []App) error {
 	configPath := ConfigPath(projectRoot)
 
@@ -155,6 +172,12 @@ func Save(projectRoot string, apps []App) error {
 			Dir:     a.Dir,
 			Command: a.Command,
 			Ports:   a.Ports,
+		}
+		if a.Project != "" {
+			clean[i].Project = a.Project
+		}
+		if a.AutoStart {
+			clean[i].AutoStart = a.AutoStart
 		}
 		if a.AutoRestart != nil {
 			clean[i].AutoRestart = a.AutoRestart
@@ -202,6 +225,13 @@ func Save(projectRoot string, apps []App) error {
 		return err
 	}
 	data = append(data, '\n')
+
+	// Backup existing file before writing
+	bakPath := configPath + ".bak"
+	if existing, err := os.ReadFile(configPath); err == nil {
+		os.WriteFile(bakPath, existing, 0644)
+	}
+
 	tmp := configPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return err
@@ -212,6 +242,12 @@ func Save(projectRoot string, apps []App) error {
 // HasChanged checks if two App entries differ in significant fields.
 func HasChanged(old, new App) bool {
 	if old.Dir != new.Dir || old.Command != new.Command {
+		return true
+	}
+	if old.Project != new.Project {
+		return true
+	}
+	if old.AutoStart != new.AutoStart {
 		return true
 	}
 	if len(old.Ports) != len(new.Ports) {
