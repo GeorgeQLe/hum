@@ -34,16 +34,15 @@ func (m Model) handleQuit() (tea.Model, tea.Cmd) {
 	if m.fileWatchManager != nil {
 		m.fileWatchManager.StopAll()
 	}
-	// Save session state BEFORE stopping (so we know which apps were running)
-	// Always save, even if empty, to clear stale sessions (B10)
+	// Capture which apps are running BEFORE stopping (so we know what to save)
 	var running []string
 	for _, app := range m.apps {
 		if m.procManager.GetStatus(app.Name) == process.StatusRunning {
 			running = append(running, app.Name)
 		}
 	}
-	state.SaveSession(m.projectRoot, running)
 	pm := m.procManager
+	projectRoot := m.projectRoot
 	return m, func() tea.Msg {
 		done := make(chan struct{})
 		go func() {
@@ -54,6 +53,8 @@ func (m Model) handleQuit() (tea.Model, tea.Cmd) {
 		case <-done:
 		case <-time.After(quitTimeout):
 		}
+		// Save session state AFTER stopping completes (B10)
+		state.SaveSession(projectRoot, running)
 		return quitDoneMsg{}
 	}
 }

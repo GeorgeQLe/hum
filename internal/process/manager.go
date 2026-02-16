@@ -2,6 +2,7 @@ package process
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,7 +25,7 @@ const (
 	StatusCrashed  Status = "crashed"
 
 	stopTimeout     = 5 * time.Second
-	eventChannelSize = 1024
+	eventChannelSize = 8192
 )
 
 // Entry tracks a managed process and its metadata.
@@ -389,7 +390,10 @@ func (m *Manager) Stop(name string) error {
 	pid := cmd.Process.Pid
 
 	// Send SIGTERM to process group
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		buf := m.GetLogBuffer(name)
+		buf.Append(fmt.Sprintf("[%s] SIGTERM failed: %v", name, err), false)
+	}
 
 	// Wait for exit or timeout
 	select {
@@ -399,7 +403,9 @@ func (m *Manager) Stop(name string) error {
 		// Force kill
 		buf := m.GetLogBuffer(name)
 		buf.Append(fmt.Sprintf("[%s] SIGTERM timeout, sending SIGKILL...", name), false)
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			buf.Append(fmt.Sprintf("[%s] SIGKILL failed: %v", name, err), false)
+		}
 		<-entry.doneCh
 		return nil
 	}
@@ -627,20 +633,24 @@ func (m *Manager) readOutput(name string, r interface{ Read([]byte) (int, error)
 func (m *Manager) sendEvent(evt ProcessEvent) {
 	select {
 	case m.eventCh <- evt:
+		return
 	default:
-		m.droppedEvents.Add(1)
-		// Channel full — use a short timeout so critical events (crashes, errors)
-		// have a better chance of being delivered.
-		if evt.Type == EventCrashed || evt.Type == EventErrorDetected || evt.Type == EventError {
-			select {
-			case m.eventCh <- evt:
-				m.droppedEvents.Add(-1)
-			case <-time.After(100 * time.Millisecond):
-				// Truly full; log to stderr as last resort
-				fmt.Fprintf(os.Stderr, "devctl: event channel full, dropped %s event for %s\n", eventTypeName(evt.Type), evt.AppName)
-			}
+	}
+
+	isCritical := evt.Type == EventCrashed || evt.Type == EventErrorDetected ||
+		evt.Type == EventError || evt.Type == EventStarted || evt.Type == EventStopped
+
+	if isCritical {
+		select {
+		case m.eventCh <- evt:
+			return
+		case <-time.After(2 * time.Second):
+			fmt.Fprintf(os.Stderr, "devctl: critical event dropped for %s: %s\n",
+				evt.AppName, eventTypeName(evt.Type))
 		}
 	}
+
+	m.droppedEvents.Add(1)
 }
 
 // DroppedEvents returns the total number of events dropped due to a full channel.

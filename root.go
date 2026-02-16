@@ -4,12 +4,17 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime/debug"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/georgele/devctl/internal/api"
 	"github.com/georgele/devctl/internal/config"
+	"github.com/georgele/devctl/internal/ipc"
 	"github.com/georgele/devctl/internal/tui"
 )
 
@@ -75,11 +80,26 @@ func runTUI(startAll, restore bool) error {
 	}()
 	defer close(done)
 
-	// Panic recovery to restore terminal state
+	// Panic recovery to restore terminal state and clean up resources
 	defer func() {
 		if r := recover(); r != nil {
 			p.Kill()
-			fmt.Fprintf(os.Stderr, "devctl panic: %v\n", r)
+			stack := debug.Stack()
+			fmt.Fprintf(os.Stderr, "devctl panic: %v\n%s\n", r, stack)
+
+			// Write crash log
+			crashDir := filepath.Join(os.TempDir(), "devctl-crashes")
+			if err := os.MkdirAll(crashDir, 0755); err == nil {
+				crashFile := filepath.Join(crashDir, fmt.Sprintf("crash-%d.log", time.Now().Unix()))
+				content := fmt.Sprintf("devctl panic: %v\n\n%s", r, stack)
+				os.WriteFile(crashFile, []byte(content), 0644) //nolint:errcheck // best-effort crash log
+				fmt.Fprintf(os.Stderr, "crash log written to %s\n", crashFile)
+			}
+
+			// Clean up IPC socket and API PID file
+			ipc.Cleanup(projectRoot)
+			api.RemovePIDFile()
+
 			os.Exit(1)
 		}
 	}()
