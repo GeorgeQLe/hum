@@ -26,6 +26,16 @@ func TestIsPortFree(t *testing.T) {
 	}
 }
 
+func TestFindFreePortAbove9999(t *testing.T) {
+	port := FindFreePort(nil, 49990)
+	if port == 0 {
+		t.Skip("could not find free port starting at 49990")
+	}
+	if port < 49990 || port > 65535 {
+		t.Errorf("FindFreePort(nil, 49990) = %d, want in range 49990–65535", port)
+	}
+}
+
 func TestSuggestAlternativePort(t *testing.T) {
 	// Use a port that's likely free
 	alt := SuggestAlternativePort(49999)

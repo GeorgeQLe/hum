@@ -147,7 +147,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 	var req Request
 	if err := json.Unmarshal([]byte(line), &req); err != nil {
 		resp := Response{OK: false, Error: "Invalid JSON"}
-		data, _ := json.Marshal(resp)
+		data, err := json.Marshal(resp)
+		if err != nil {
+			log.Printf("ipc: failed to marshal error response: %v", err)
+			return
+		}
 		conn.Write(append(data, '\n'))
 		return
 	}
@@ -158,7 +162,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 	case s.requestCh <- IPCRequestMsg{Request: req, ResponseCh: responseCh}:
 	case <-time.After(5 * time.Second):
 		resp := Response{OK: false, Error: "Request timeout"}
-		data, _ := json.Marshal(resp)
+		data, err := json.Marshal(resp)
+		if err != nil {
+			log.Printf("ipc: failed to marshal timeout response: %v", err)
+			return
+		}
 		conn.Write(append(data, '\n'))
 		return
 	}
@@ -166,11 +174,25 @@ func (s *Server) handleConnection(conn net.Conn) {
 	// Wait for response from TUI
 	select {
 	case resp := <-responseCh:
-		data, _ := json.Marshal(resp)
+		data, err := json.Marshal(resp)
+		if err != nil {
+			log.Printf("ipc: failed to marshal response: %v", err)
+			return
+		}
 		conn.Write(append(data, '\n'))
 	case <-time.After(10 * time.Second):
 		resp := Response{OK: false, Error: "Response timeout"}
-		data, _ := json.Marshal(resp)
+		data, err := json.Marshal(resp)
+		if err != nil {
+			log.Printf("ipc: failed to marshal timeout response: %v", err)
+			return
+		}
 		conn.Write(append(data, '\n'))
 	}
+}
+
+// Cleanup removes the IPC socket file for a project root.
+// Safe to call even if no server is running.
+func Cleanup(projectRoot string) {
+	os.Remove(SocketPath(projectRoot))
 }

@@ -93,7 +93,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 func generateRequestID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	rand.Read(b) //nolint:errcheck // crypto/rand.Read never fails
 	return hex.EncodeToString(b)
 }
 
@@ -263,7 +263,7 @@ func (h *Handler) mutatingHandler(w http.ResponseWriter, r *http.Request, action
 		detail := appName
 		if detail == "" && len(payload) > 0 {
 			var p struct{ Name string `json:"name"` }
-			json.Unmarshal(payload, &p)
+			json.Unmarshal(payload, &p) //nolint:errcheck // best-effort name extraction
 			if p.Name != "" {
 				detail = p.Name
 			}

@@ -241,7 +241,7 @@ func (fm *FileWatchManager) watchLoop(appName string, aw *appWatcher) {
 			// Handle new directories
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-					aw.addDirRecursive(event.Name)
+					aw.addDirRecursive(event.Name) //nolint:errcheck // best-effort watch
 					continue
 				}
 			}

@@ -244,6 +244,58 @@ func TestManagerEvents(t *testing.T) {
 	}
 }
 
+func TestEventChannelCapacity(t *testing.T) {
+	m := NewManager(t.TempDir())
+
+	// Fill the channel to capacity
+	for i := 0; i < eventChannelSize; i++ {
+		m.eventCh <- ProcessEvent{AppName: "fill", Type: EventOutput, Message: "fill"}
+	}
+
+	// Next non-critical event should be dropped
+	m.sendEvent(ProcessEvent{AppName: "test", Type: EventOutput, Message: "dropped"})
+
+	if m.DroppedEvents() != 1 {
+		t.Errorf("expected 1 dropped event, got %d", m.DroppedEvents())
+	}
+
+	// Drain
+	for len(m.eventCh) > 0 {
+		<-m.eventCh
+	}
+}
+
+func TestCriticalEventDelivery(t *testing.T) {
+	m := NewManager(t.TempDir())
+
+	// Fill the channel to capacity
+	for i := 0; i < eventChannelSize; i++ {
+		m.eventCh <- ProcessEvent{AppName: "fill", Type: EventOutput, Message: "fill"}
+	}
+
+	// Drain in background so the critical event can be delivered
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		for len(m.eventCh) > 0 {
+			<-m.eventCh
+		}
+	}()
+
+	// Send critical event — should block and eventually deliver
+	done := make(chan struct{})
+	go func() {
+		m.sendEvent(ProcessEvent{AppName: "test", Type: EventCrashed, Message: "crash"})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Critical event was delivered (not dropped)
+	case <-time.After(3 * time.Second):
+		t.Fatal("critical event was not delivered within timeout")
+	}
+}
+
 func drainEvents(m *Manager, timeout time.Duration) {
 	deadline := time.After(timeout)
 	for {

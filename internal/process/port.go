@@ -80,7 +80,7 @@ func FindFreePort(usedPorts []int, basePort int) int {
 	for _, p := range usedPorts {
 		used[p] = true
 	}
-	for port := basePort; port <= 9999; port++ {
+	for port := basePort; port <= 65535; port++ {
 		if used[port] {
 			continue
 		}

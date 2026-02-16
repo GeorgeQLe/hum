@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	buildTimeout    = 60 * time.Second
-	debounceDelay   = 500 * time.Millisecond
+	buildTimeout     = 60 * time.Second
+	debounceDelay    = 500 * time.Millisecond
 	childGracePeriod = 5 * time.Second
 )
 
@@ -27,6 +27,14 @@ var skipDirs = map[string]bool{
 	".git": true, "vendor": true, "node_modules": true, "web": true,
 	"dist": true, "build": true, "tmp": true,
 }
+
+// loopResult indicates what happened at the end of a child loop iteration.
+type loopResult int
+
+const (
+	loopExit    loopResult = iota // child exited normally (user quit)
+	loopRebuild                  // child exited after rebuild signal
+)
 
 // Supervisor watches Go source files and rebuilds/restarts devctl.
 type Supervisor struct {
@@ -74,7 +82,11 @@ func (s *Supervisor) Run() error {
 		return s.waitAndRetry(watcher, sigCh)
 	}
 
-	// Main loop
+	return s.runLoop(watcher, sigCh)
+}
+
+// runLoop is the outer for-loop: launch child → run child loop → check result.
+func (s *Supervisor) runLoop(watcher *fsnotify.Watcher, sigCh chan os.Signal) error {
 	for {
 		fmt.Println("[dev] Starting devctl...")
 
@@ -83,87 +95,91 @@ func (s *Supervisor) Run() error {
 			return fmt.Errorf("failed to launch child: %w", err)
 		}
 
-		// Wait for: file change, child exit, or signal
-		childDone := make(chan error, 1)
-		go func() {
-			childDone <- child.Wait()
-		}()
+		result, err := s.runChildLoop(child, watcher, sigCh)
+		if err != nil {
+			return err
+		}
 
-		var debounceTimer *time.Timer
-		rebuildCh := make(chan struct{}, 1)
-		pendingRebuild := false
-
-		for {
-			select {
-			case <-sigCh:
-				// Clean shutdown: kill child and exit
-				fmt.Println("\n[dev] Shutting down...")
-				s.stopChild(child)
-				<-childDone
-				s.cleanup()
-				return nil
-
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return nil
-				}
-				if !s.isGoFile(event.Name) {
-					continue
-				}
-				if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
-					continue
-				}
-				// Debounce
-				if debounceTimer != nil {
-					debounceTimer.Stop()
-				}
-				debounceTimer = time.AfterFunc(debounceDelay, func() {
-					select {
-					case rebuildCh <- struct{}{}:
-					default:
-					}
-				})
-
-			case <-rebuildCh:
-				fmt.Println("[dev] File changed, rebuilding...")
-				if err := s.build(); err != nil {
-					fmt.Fprintf(os.Stderr, "[dev] Build failed:\n%s\n", err)
-					fmt.Println("[dev] Waiting for next change...")
-					// Send build error to running TUI via IPC
-					s.sendBuildError(err.Error())
-					continue
-				}
-				fmt.Println("[dev] Build succeeded, restarting TUI...")
-				pendingRebuild = true
-				// Signal child to gracefully exit
-				child.Process.Signal(syscall.SIGUSR1)
-
-			case err := <-childDone:
-				if pendingRebuild {
-					// Expected exit after SIGUSR1 — restart with new binary
-					_ = err
-					break
-				}
-				// Child exited on its own (user quit)
-				s.cleanup()
-				if err != nil {
-					// Non-zero exit is fine for user-initiated quit
-					return nil
-				}
-				return nil
-
-			case _, ok := <-watcher.Errors:
-				if !ok {
-					return nil
-				}
-			}
-
-			if pendingRebuild {
-				break
-			}
+		if result == loopExit {
+			s.cleanup()
+			return nil
 		}
 
 		s.firstRun = false
+	}
+}
+
+// runChildLoop runs the inner select loop for a single child process.
+// It returns loopRebuild if the child was restarted after a successful build,
+// or loopExit if the child exited normally or a signal was received.
+func (s *Supervisor) runChildLoop(child *exec.Cmd, watcher *fsnotify.Watcher, sigCh chan os.Signal) (loopResult, error) {
+	childDone := make(chan error, 1)
+	go func() {
+		childDone <- child.Wait()
+	}()
+
+	var debounceTimer *time.Timer
+	rebuildCh := make(chan struct{}, 1)
+	pendingRebuild := false
+
+	for {
+		select {
+		case <-sigCh:
+			// Clean shutdown: kill child and exit
+			fmt.Println("\n[dev] Shutting down...")
+			s.stopChild(child)
+			<-childDone
+			s.cleanup()
+			return loopExit, nil
+
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return loopExit, nil
+			}
+			if !s.isGoFile(event.Name) {
+				continue
+			}
+			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+				continue
+			}
+			// Debounce
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			debounceTimer = time.AfterFunc(debounceDelay, func() {
+				select {
+				case rebuildCh <- struct{}{}:
+				default:
+				}
+			})
+
+		case <-rebuildCh:
+			fmt.Println("[dev] File changed, rebuilding...")
+			if err := s.build(); err != nil {
+				fmt.Fprintf(os.Stderr, "[dev] Build failed:\n%s\n", err)
+				fmt.Println("[dev] Waiting for next change...")
+				// Send build error to running TUI via IPC
+				s.sendBuildError(err.Error())
+				continue
+			}
+			fmt.Println("[dev] Build succeeded, restarting TUI...")
+			pendingRebuild = true
+			// Signal child to gracefully exit
+			child.Process.Signal(syscall.SIGUSR1)
+
+		case err := <-childDone:
+			if pendingRebuild {
+				_ = err
+				return loopRebuild, nil
+			}
+			// Child exited on its own (user quit)
+			return loopExit, nil
+
+		case _, ok := <-watcher.Errors:
+			if !ok {
+				return loopExit, nil
+			}
+		}
 	}
 }
 
@@ -289,96 +305,13 @@ func (s *Supervisor) waitAndRetry(watcher *fsnotify.Watcher, sigCh chan os.Signa
 				fmt.Println("[dev] Waiting for next change...")
 				continue
 			}
-			// Build succeeded — exit retry loop and enter main Run loop
-			// We need to break out to the main loop
-			return s.runFromBuild(watcher, sigCh)
+			// Build succeeded — enter main loop
+			return s.runLoop(watcher, sigCh)
 
 		case _, ok := <-watcher.Errors:
 			if !ok {
 				return nil
 			}
 		}
-	}
-}
-
-func (s *Supervisor) runFromBuild(watcher *fsnotify.Watcher, sigCh chan os.Signal) error {
-	for {
-		fmt.Println("[dev] Starting devctl...")
-
-		child, err := s.launchChild()
-		if err != nil {
-			return fmt.Errorf("failed to launch child: %w", err)
-		}
-
-		childDone := make(chan error, 1)
-		go func() {
-			childDone <- child.Wait()
-		}()
-
-		var debounceTimer *time.Timer
-		rebuildCh := make(chan struct{}, 1)
-		pendingRebuild := false
-
-		for {
-			select {
-			case <-sigCh:
-				fmt.Println("\n[dev] Shutting down...")
-				s.stopChild(child)
-				<-childDone
-				s.cleanup()
-				return nil
-
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return nil
-				}
-				if !s.isGoFile(event.Name) {
-					continue
-				}
-				if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
-					continue
-				}
-				if debounceTimer != nil {
-					debounceTimer.Stop()
-				}
-				debounceTimer = time.AfterFunc(debounceDelay, func() {
-					select {
-					case rebuildCh <- struct{}{}:
-					default:
-					}
-				})
-
-			case <-rebuildCh:
-				fmt.Println("[dev] File changed, rebuilding...")
-				if err := s.build(); err != nil {
-					fmt.Fprintf(os.Stderr, "[dev] Build failed:\n%s\n", err)
-					fmt.Println("[dev] Waiting for next change...")
-					s.sendBuildError(err.Error())
-					continue
-				}
-				fmt.Println("[dev] Build succeeded, restarting TUI...")
-				pendingRebuild = true
-				child.Process.Signal(syscall.SIGUSR1)
-
-			case err := <-childDone:
-				if pendingRebuild {
-					_ = err
-					break
-				}
-				s.cleanup()
-				return nil
-
-			case _, ok := <-watcher.Errors:
-				if !ok {
-					return nil
-				}
-			}
-
-			if pendingRebuild {
-				break
-			}
-		}
-
-		s.firstRun = false
 	}
 }

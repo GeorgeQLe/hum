@@ -29,14 +29,6 @@ func (fm *FilterMode) compile() {
 	fm.regex = re
 }
 
-// matches returns true if the line matches the filter pattern.
-func (fm *FilterMode) matches(line string) bool {
-	if fm.regex == nil {
-		return true
-	}
-	return fm.regex.MatchString(line)
-}
-
 // handleFilterKeypress processes key events in filter mode.
 func (m Model) handleFilterKeypress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {

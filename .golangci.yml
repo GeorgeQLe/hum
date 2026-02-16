@@ -1,0 +1,83 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosimple
+    - gocritic
+    - misspell
+    - bodyclose
+    - nilerr
+    - unconvert
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - fmt.Fprintf
+      - fmt.Printf
+      - fmt.Fprintln
+      - (net/http.ResponseWriter).Write
+      - (*encoding/json.Encoder).Encode
+      - (*net.Conn).SetDeadline
+      - (net.Conn).SetDeadline
+      - (*net.Conn).Write
+      - (net.Conn).Write
+      - (*os.Process).Signal
+      - (*os.Process).Kill
+      - (*os/exec.Cmd).Wait
+      - crypto/rand.Read
+      # Process manager: fire-and-forget by design in TUI/IPC contexts
+      - (*github.com/georgele/devctl/internal/process.Manager).Start
+      - (*github.com/georgele/devctl/internal/process.Manager).Stop
+      - (*github.com/georgele/devctl/internal/process.Manager).Restart
+      - github.com/georgele/devctl/internal/process.SendNotification
+      - github.com/georgele/devctl/internal/process.KillExternalProcess
+      - github.com/georgele/devctl/internal/api.WritePIDFile
+      - github.com/georgele/devctl/internal/state.SaveSession
+      # Best-effort cleanup/shutdown
+      - (*net/http.Server).Shutdown
+      - (*github.com/georgele/devctl/internal/ipc.Client).BuildError
+  govet:
+    disable:
+      - shadow
+  gocritic:
+    disabled-checks:
+      - ifElseChain
+      - unlambda
+      - argOrder
+
+issues:
+  exclude-dirs:
+    - web
+    - internal/server/web_dist
+  exclude-rules:
+    # Test files: relax errcheck and staticcheck empty-branch
+    - path: _test\.go
+      linters:
+        - errcheck
+    - path: _test\.go
+      text: "SA9003"
+      linters:
+        - staticcheck
+    # Intentional nil return after logging error
+    - path: internal/dev/supervisor\.go
+      linters:
+        - nilerr
+    - path: internal/process/filewatcher\.go
+      linters:
+        - nilerr
+    - path: internal/process/manager\.go
+      linters:
+        - nilerr
+    - path: cmd/envsafe/
+      linters:
+        - nilerr
+    # Intentional recover() without checking return value
+    - source: "recover\\(\\)"
+      linters:
+        - errcheck
