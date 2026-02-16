@@ -128,7 +128,7 @@ func (s *Server) Token() string {
 func (s *Server) Stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s.httpServer.Shutdown(ctx)
+	s.httpServer.Shutdown(ctx) //nolint:errcheck // best-effort shutdown
 	RemoveDiscovery()
 }
 

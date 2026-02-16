@@ -139,7 +139,7 @@ func Load(projectRoot string) ([]App, error) {
 			if json.Unmarshal(bakData, &bakApps) == nil {
 				fmt.Fprintf(os.Stderr, "warning: %s was corrupt, restored from backup\n", configPath)
 				// Restore the backup
-				os.WriteFile(configPath, bakData, 0644)
+				os.WriteFile(configPath, bakData, 0644) //nolint:errcheck // best-effort restore
 				apps = bakApps
 			} else {
 				return nil, fmt.Errorf("invalid JSON in %s (backup also corrupt): %w", configPath, err)
@@ -229,7 +229,7 @@ func Save(projectRoot string, apps []App) error {
 	// Backup existing file before writing
 	bakPath := configPath + ".bak"
 	if existing, err := os.ReadFile(configPath); err == nil {
-		os.WriteFile(bakPath, existing, 0644)
+		os.WriteFile(bakPath, existing, 0644) //nolint:errcheck // best-effort backup
 	}
 
 	tmp := configPath + ".tmp"

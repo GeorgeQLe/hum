@@ -191,9 +191,7 @@ type portConflictMsg struct {
 }
 
 // commandDoneMsg signals an async command completed.
-type commandDoneMsg struct {
-	err error
-}
+type commandDoneMsg struct{}
 
 // appEnv returns the resolved environment variables for an app,
 // merging vault secrets with plain-text env vars.

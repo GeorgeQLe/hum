@@ -27,16 +27,6 @@ func testModel(apps ...config.App) Model {
 	}
 }
 
-// lastSystemLog returns the last line logged to the devctl system buffer.
-func lastSystemLog(m *Model) string {
-	buf := m.procManager.GetLogBuffer("devctl")
-	lines, _, _ := buf.Snapshot()
-	if len(lines) == 0 {
-		return ""
-	}
-	return lines[len(lines)-1].Text
-}
-
 // allSystemLogs returns all log lines joined by newline.
 func allSystemLogs(m *Model) string {
 	buf := m.procManager.GetLogBuffer("devctl")

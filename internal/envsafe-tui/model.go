@@ -34,7 +34,6 @@ var (
 	styleValue     = lipgloss.NewStyle().Foreground(colorYellow)
 
 	boxH = "─"
-	boxV = "│"
 )
 
 // Model is the Bubble Tea model for envsafe browse.

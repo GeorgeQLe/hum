@@ -343,10 +343,6 @@ func DetectPackageManager(fullPath, packageManagerField, projectRoot string) str
 	return "npm"
 }
 
-func buildCommand(pm string) string {
-	return buildCommandForScript(pm, "dev")
-}
-
 func buildCommandForScript(pm, scriptName string) string {
 	switch pm {
 	case "pnpm":

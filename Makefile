@@ -1,4 +1,4 @@
-.PHONY: build build-envsafe build-web run dev test clean install install-skill
+.PHONY: build build-envsafe build-web run dev test lint clean install install-skill
 
 build:
 	go build -o devctl .
@@ -19,6 +19,9 @@ dev: build
 
 test:
 	go test -race ./...
+
+lint:
+	golangci-lint run ./...
 
 clean:
 	rm -f devctl envsafe

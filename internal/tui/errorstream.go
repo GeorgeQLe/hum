@@ -326,9 +326,7 @@ func getErrorBodyLines(entry errorStreamEntry) []string {
 			lines = append(lines, ce.Parsed.Message)
 		}
 		// Stack trace
-		for _, frame := range ce.Parsed.StackTrace {
-			lines = append(lines, frame)
-		}
+		lines = append(lines, ce.Parsed.StackTrace...)
 		return lines
 	}
 
