@@ -2,8 +2,12 @@ package main
 
 import "os"
 
+// Set via -ldflags at build time by GoReleaser.
+var version = "dev"
+
 func main() {
 	rootCmd := newRootCmd()
+	rootCmd.Version = version
 	rootCmd.AddCommand(
 		newPingCmd(),
 		newStatusCmd(),
