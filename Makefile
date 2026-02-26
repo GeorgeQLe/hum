@@ -1,4 +1,4 @@
-.PHONY: build build-envsafe build-web run dev test lint clean install install-skill
+.PHONY: build build-envsafe build-web run dev test test-e2e lint clean install install-skill
 
 build:
 	go build -o devctl .
@@ -19,6 +19,9 @@ dev: build
 
 test:
 	go test -race ./...
+
+test-e2e:
+	go test -race -count=1 -tags e2e -timeout 120s ./internal/e2e/
 
 lint:
 	golangci-lint run ./...

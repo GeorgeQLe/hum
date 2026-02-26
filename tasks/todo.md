@@ -53,7 +53,7 @@ Add structured logging so all future development is easier to debug. Must land b
 Now that the code is split, correct, and observable -- add proper test coverage to lock it in.
 
 - [ ] **PR #30: Add integration test suite for TUI** - Use `teatest` for mode transitions, keyboard handling, layout at various terminal sizes, and approval flow.
-- [ ] **PR #31: Add end-to-end test with real processes** - Create temp `apps.json` with `echo` processes, start devctl, verify apps start, send IPC commands, verify responses, check graceful shutdown. Run in CI.
+- [x] **PR #31: Add end-to-end test with real processes** - 19 e2e tests in `internal/e2e/` behind build tag. Manager lifecycle (start, stop, crash, restart, env, error detection, process group kill), HTTP API (auth, start/stop, detail, logs, ports), IPC (ping, start/stop, status), health checks (healthy/unhealthy transitions). CI job and `make test-e2e` target.
 - [ ] **PR #32: Add fuzz testing for config parser** - `go test -fuzz` for malformed JSON, extreme values, unicode app names, empty arrays, circular dependencies.
 - [ ] **PR #33: Add benchmark tests for hot paths** - `Benchmark*` tests for log buffer append/trim, TUI view rendering, event channel throughput, ANSI sanitization.
 

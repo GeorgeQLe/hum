@@ -429,6 +429,15 @@ Press `/` or `Ctrl+F` (when command line is empty) to search the current log buf
 
 The search is case-insensitive and updates as you type.
 
+## Testing
+
+```sh
+make test        # unit tests (fast, no process spawning)
+make test-e2e    # end-to-end tests (spawns real processes, ~40s)
+```
+
+The e2e suite lives in `internal/e2e/` behind a `//go:build e2e` tag so it never runs during `go test ./...`. It exercises the full lifecycle through the Manager, HTTP API, IPC, and Health Checker using real shell commands as mock applications.
+
 ## Process Management
 
 - Processes run via `sh -c` in detached process groups

@@ -21,6 +21,18 @@ jobs:
       - run: go build -o devctl .
       - run: go test -race -count=1 ./...
 
+  e2e-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - run: go mod download
+      - run: go test -race -count=1 -tags e2e -timeout 120s ./internal/e2e/
+
   lint:
     runs-on: ubuntu-latest
     steps:
