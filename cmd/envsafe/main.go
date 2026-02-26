@@ -32,6 +32,9 @@ func main() {
 		cmd.ShareCmd(),
 		cmd.ServeCmd(),
 		cmd.LoginCmd(),
+		cmd.PasswdCmd(),
+		cmd.BackupCmd(),
+		cmd.RestoreCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

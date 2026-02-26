@@ -1,3 +1,7 @@
+// EXPERIMENTAL: All handlers below (except health) are stubs returning 501 Not Implemented.
+// The server requires a full implementation (database, auth, business logic) before use.
+// Use the local vault CLI commands for production workflows.
+
 package server
 
 import (

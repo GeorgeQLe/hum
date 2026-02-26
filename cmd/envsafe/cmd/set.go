@@ -29,6 +29,10 @@ func SetCmd() *cobra.Command {
 				return err
 			}
 
+			if !vault.Exists(projectRoot) {
+				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+			}
+
 			v, err := openAndUnlock(projectRoot)
 			if err != nil {
 				return err

@@ -367,6 +367,37 @@ func (v *Vault) Rotate(env, key, newValue string) error {
 	return v.saveVault()
 }
 
+// ChangePassword re-encrypts the vault with a new password.
+// The vault must be unlocked first.
+func (v *Vault) ChangePassword(newPassword string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.key == nil || v.data == nil {
+		return fmt.Errorf("vault is locked")
+	}
+
+	newSalt, err := crypto.GenerateSalt()
+	if err != nil {
+		return fmt.Errorf("generating salt: %w", err)
+	}
+
+	newKey, err := crypto.DeriveKey(newPassword, newSalt)
+	if err != nil {
+		return fmt.Errorf("deriving key: %w", err)
+	}
+
+	// Zero old key
+	for i := range v.key {
+		v.key[i] = 0
+	}
+
+	v.key = newKey
+	v.salt = newSalt
+
+	return v.saveVault()
+}
+
 // ListEnvironments returns all environment names (sorted).
 func (v *Vault) ListEnvironments() []string {
 	v.mu.RLock()

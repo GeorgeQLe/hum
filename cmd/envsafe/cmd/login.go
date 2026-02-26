@@ -19,13 +19,16 @@ func LoginCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate with envsafe server",
+		Short: "Authenticate with envsafe server [EXPERIMENTAL — server not yet functional]",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			warnIfInsecureHTTP(serverURL)
 
 			fmt.Fprint(os.Stderr, "Email: ")
 			reader := bufio.NewReader(os.Stdin)
-			email, _ := reader.ReadString('\n')
+			email, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("reading email: %w", err)
+			}
 			email = strings.TrimSpace(email)
 
 			password, err := promptPassword("Password: ")
@@ -33,10 +36,13 @@ func LoginCmd() *cobra.Command {
 				return err
 			}
 
-			body, _ := json.Marshal(map[string]string{
+			body, err := json.Marshal(map[string]string{
 				"email":    email,
 				"password": password,
 			})
+			if err != nil {
+				return fmt.Errorf("encoding request: %w", err)
+			}
 
 			resp, err := http.Post(serverURL+"/api/auth/login", "application/json", bytes.NewReader(body))
 			if err != nil {
@@ -44,7 +50,10 @@ func LoginCmd() *cobra.Command {
 			}
 			defer resp.Body.Close()
 
-			respBody, _ := io.ReadAll(resp.Body)
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("reading response: %w", err)
+			}
 
 			if resp.StatusCode != http.StatusOK {
 				return fmt.Errorf("login failed: %s", string(respBody))

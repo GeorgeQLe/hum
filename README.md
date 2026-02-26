@@ -445,3 +445,127 @@ The e2e suite lives in `internal/e2e/` behind a `//go:build e2e` tag so it never
 - Stdout and stderr are captured and displayed in the log pane
 - Crashed processes are indicated with a red status dot
 - Environment: inherits parent env plus per-app `env` vars
+
+## envsafe — Encrypted Secrets Manager
+
+envsafe is a local-first encrypted environment variable manager that integrates with devctl. Secrets are encrypted with AES-256-GCM using an Argon2id-derived key and stored in a `.envsafe/` directory.
+
+### Quick Start
+
+```sh
+# Initialize a vault in your project
+envsafe init
+
+# Store a secret
+envsafe set API_KEY sk-secret-value
+
+# Retrieve it
+envsafe get API_KEY
+
+# List all keys (values hidden)
+envsafe list
+
+# Export as KEY=VALUE pairs
+envsafe env
+```
+
+### devctl Integration
+
+Add `vault_env` to your app config in `apps.json` to auto-inject secrets at startup:
+
+```json
+{
+  "name": "api-server",
+  "dir": "apps/api",
+  "command": "npm run dev",
+  "ports": [3000],
+  "vault_env": "development"
+}
+```
+
+devctl will unlock the vault (using the OS keychain or `ENVSAFE_PASSWORD` env var) and merge secrets into the process environment. Plain-text `env` values take precedence over vault values.
+
+### Multi-Environment Support
+
+Secrets are organized by environment:
+
+```sh
+envsafe set -e production DATABASE_URL "postgres://..."
+envsafe set -e staging DATABASE_URL "postgres://staging..."
+envsafe list -e production
+```
+
+### Secret Rotation
+
+Rotate a secret while preserving its history:
+
+```sh
+envsafe rotate API_KEY sk-new-value
+```
+
+Previous values are stored in an audit trail within the vault.
+
+### Team Sharing
+
+Share secrets with teammates using X25519 envelope encryption:
+
+```sh
+envsafe user add alice@example.com    # generates a key pair
+envsafe user list                     # show team members
+envsafe user role alice@example.com admin
+```
+
+### Password Management
+
+```sh
+envsafe passwd       # change the vault master password
+envsafe unlock       # unlock and cache password in OS keychain
+envsafe lock         # lock the vault and clear cached password
+```
+
+### Backup & Restore
+
+```sh
+envsafe backup                          # creates envsafe-backup-<timestamp>.tar.gz
+envsafe backup -o my-backup.tar.gz      # custom output path
+envsafe restore my-backup.tar.gz        # restore from archive
+```
+
+### Audit Log
+
+envsafe maintains an append-only audit log of all vault operations:
+
+```sh
+envsafe audit                           # view all audit entries
+envsafe audit --action set              # filter by action
+envsafe audit --format json             # JSON output
+```
+
+### Interactive Browser
+
+```sh
+envsafe browse       # TUI vault explorer with 4-view navigation
+```
+
+### All Commands
+
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize a new encrypted vault |
+| `set` | Store a secret |
+| `get` | Retrieve a secret |
+| `list` | List secret keys (values hidden) |
+| `rm` | Remove a secret |
+| `env` | Export all secrets as KEY=VALUE |
+| `rotate` | Rotate a secret (preserves history) |
+| `passwd` | Change the vault master password |
+| `unlock` | Unlock vault and cache password in keychain |
+| `lock` | Lock vault and clear cached password |
+| `backup` | Back up vault to compressed archive |
+| `restore` | Restore vault from backup archive |
+| `browse` | Interactive TUI vault explorer |
+| `user` | Manage team members (add/list/remove/role) |
+| `audit` | View audit log |
+| `share` | Create a one-time share link (requires server) |
+| `login` | Authenticate with server (experimental) |
+| `serve` | Start the server (experimental) |

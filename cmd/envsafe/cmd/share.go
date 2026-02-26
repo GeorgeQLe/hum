@@ -30,6 +30,10 @@ func ShareCmd() *cobra.Command {
 				return err
 			}
 
+			if !vault.Exists(projectRoot) {
+				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+			}
+
 			v, err := openAndUnlock(projectRoot)
 			if err != nil {
 				return err
@@ -41,12 +45,15 @@ func ShareCmd() *cobra.Command {
 				return err
 			}
 
-			body, _ := json.Marshal(map[string]interface{}{
+			body, err := json.Marshal(map[string]interface{}{
 				"environment": env,
 				"key":         key,
 				"value":       value,
 				"expires_in":  expiresIn,
 			})
+			if err != nil {
+				return fmt.Errorf("encoding request: %w", err)
+			}
 
 			resp, err := http.Post(serverURL+"/api/share", "application/json", bytes.NewReader(body))
 			if err != nil {
@@ -54,7 +61,10 @@ func ShareCmd() *cobra.Command {
 			}
 			defer resp.Body.Close()
 
-			respBody, _ := io.ReadAll(resp.Body)
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("reading response: %w", err)
+			}
 
 			if resp.StatusCode != http.StatusOK {
 				return fmt.Errorf("share failed: %s", string(respBody))
