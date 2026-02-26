@@ -151,3 +151,15 @@ Package for distribution, add remaining features, and clean up dead code.
 - [x] **Log Timestamps** - Toggle (`t` key) to prefix log lines with timestamps
 - [x] **Session Persistence** - Save running apps on exit to `.devctl-state.json`; `--restore` flag
 - [x] **Quick Keyboard Shortcuts** - `s`/`S`/`r` shortcuts in sidebar for start/stop/restart
+- [x] **Production Readiness Fixes** — Concurrency, security, and reliability hardening:
+  - Fix data race on `m.apps` between HTTP goroutines and Bubble Tea (channel-based mutations + RWMutex snapshot)
+  - Fix `ErrorBuffer.Errors` direct access without lock (added `SnapshotErrors()`)
+  - Fix `Entry.Cmd = nil` mutation from wrong goroutine (added `GetDetail()`)
+  - Constant-time bearer token comparison (`subtle.ConstantTimeCompare`)
+  - Strip sensitive env vars (`ENVSAFE_`, `DEVCTL_TOKEN`) from child processes
+  - Path traversal check in API register endpoint
+  - IPC `Stop()` double-close panic (wrap in `closeOnce.Do`)
+  - Redact env variable values in API responses
+  - Auth middleware returns JSON errors (not plain text)
+  - Tighten file permissions 0644 → 0600 across config, state, approval, crash logs
+  - Shared panic recovery helper (`internal/panicutil`) added to all unprotected goroutines

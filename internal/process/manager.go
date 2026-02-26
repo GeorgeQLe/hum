@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/georgele/devctl/internal/panicutil"
 )
 
 // Status represents the lifecycle state of a managed process.
@@ -39,6 +41,13 @@ type Entry struct {
 
 	mu     sync.Mutex
 	doneCh chan struct{} // closed when process exits
+}
+
+// GetDetail returns the restart count and exit code, safe for concurrent use.
+func (e *Entry) GetDetail() (restartCount, exitCode int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.RestartCount, e.ExitCode
 }
 
 // GetAutoRestartState returns the auto-restart disabled flag and restart count.
@@ -239,7 +248,7 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = fullDir
-	cmd.Env = append(os.Environ(), "TURBO_UI=stream")
+	cmd.Env = append(filteredEnv(), "TURBO_UI=stream")
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -304,9 +313,15 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 	})
 
 	// Read stdout in background
-	go m.readOutput(name, stdout, false)
+	go func() {
+		defer panicutil.Recover("stdout reader")
+		m.readOutput(name, stdout, false)
+	}()
 	// Read stderr in background
-	go m.readOutput(name, stderr, true)
+	go func() {
+		defer panicutil.Recover("stderr reader")
+		m.readOutput(name, stderr, true)
+	}()
 
 	// Wait for process exit in background
 	go func() {
@@ -656,6 +671,32 @@ func (m *Manager) sendEvent(evt ProcessEvent) {
 // DroppedEvents returns the total number of events dropped due to a full channel.
 func (m *Manager) DroppedEvents() int64 {
 	return m.droppedEvents.Load()
+}
+
+// sensitiveEnvPrefixes lists environment variable prefixes that should not
+// be inherited by child processes.
+var sensitiveEnvPrefixes = []string{
+	"ENVSAFE_",
+	"DEVCTL_TOKEN",
+	"DEVCTL_API_TOKEN",
+}
+
+// filteredEnv returns os.Environ() with sensitive variables stripped.
+func filteredEnv() []string {
+	var result []string
+	for _, e := range os.Environ() {
+		skip := false
+		for _, prefix := range sensitiveEnvPrefixes {
+			if strings.HasPrefix(e, prefix) {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			result = append(result, e)
+		}
+	}
+	return result
 }
 
 func eventTypeName(t EventType) string {

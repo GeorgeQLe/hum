@@ -9,6 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/georgele/devctl/internal/config"
+	"github.com/georgele/devctl/internal/panicutil"
 )
 
 const (
@@ -131,7 +132,10 @@ func (fm *FileWatchManager) Register(appName, baseDir string, cfg *config.WatchC
 	}
 
 	fm.apps[appName] = aw
-	go fm.watchLoop(appName, aw)
+	go func() {
+		defer panicutil.Recover("file watcher")
+		fm.watchLoop(appName, aw)
+	}()
 
 	return nil
 }

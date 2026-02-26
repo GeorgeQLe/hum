@@ -92,7 +92,7 @@ func runTUI(startAll, restore bool) error {
 			if err := os.MkdirAll(crashDir, 0755); err == nil {
 				crashFile := filepath.Join(crashDir, fmt.Sprintf("crash-%d.log", time.Now().Unix()))
 				content := fmt.Sprintf("devctl panic: %v\n\n%s", r, stack)
-				os.WriteFile(crashFile, []byte(content), 0644) //nolint:errcheck // best-effort crash log
+				os.WriteFile(crashFile, []byte(content), 0600) //nolint:errcheck // best-effort crash log
 				fmt.Fprintf(os.Stderr, "crash log written to %s\n", crashFile)
 			}
 

@@ -171,6 +171,7 @@ func (m Model) handleReload() (tea.Model, tea.Cmd) {
 	if m.selectedIdx > len(m.apps) {
 		m.selectedIdx = len(m.apps)
 	}
+	m.appsSnap.refresh(m.apps)
 	m.systemLog("Config reloaded successfully.")
 	return m, nil
 }

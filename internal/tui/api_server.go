@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,15 +14,19 @@ import (
 )
 
 // startAPIServer creates and starts the HTTP API server, wiring it to the model's data.
+// Read-only closures use a RWMutex-protected snapshot of m.apps.
+// Mutating actions are sent to the TUI goroutine via apiActionCh.
 func (m *Model) startAPIServer() tea.Cmd {
 	pm := m.procManager
-	apps := &m.apps
-	model := m
+	snap := m.appsSnap
+	resMon := m.resourceMonitor
+	actionCh := m.apiActionCh
 
 	deps := api.ServerDeps{
 		GetApps: func() []api.AppInfo {
+			apps := snap.get()
 			var infos []api.AppInfo
-			for _, app := range *apps {
+			for _, app := range apps {
 				infos = append(infos, api.AppInfo{
 					Name:      app.Name,
 					Dir:       app.Dir,
@@ -37,8 +42,14 @@ func (m *Model) startAPIServer() tea.Cmd {
 			return infos
 		},
 		GetAppDetail: func(name string) *api.AppDetail {
-			for _, app := range *apps {
+			apps := snap.get()
+			for _, app := range apps {
 				if app.Name == name {
+					// Redact env values — only expose keys
+					redactedEnv := make(map[string]string, len(app.Env))
+					for k := range app.Env {
+						redactedEnv[k] = "***"
+					}
 					detail := &api.AppDetail{
 						AppInfo: api.AppInfo{
 							Name:      app.Name,
@@ -51,14 +62,14 @@ func (m *Model) startAPIServer() tea.Cmd {
 							Group:     app.Group,
 							AutoStart: app.AutoStart,
 						},
-						Env:        app.Env,
+						Env:        redactedEnv,
 						DependsOn:  app.DependsOn,
 						ErrorCount: pm.GetErrorCount(app.Name),
 					}
 					if entry := pm.GetEntry(app.Name); entry != nil {
-						entry.Cmd = nil // don't expose
-						detail.RestartCount = entry.RestartCount
-						detail.ExitCode = entry.ExitCode
+						restartCount, exitCode := entry.GetDetail()
+						detail.RestartCount = restartCount
+						detail.ExitCode = exitCode
 					}
 					if pm.GetStatus(app.Name) == process.StatusRunning {
 						detail.Uptime = formatUptime(pm.Uptime(app.Name))
@@ -90,9 +101,8 @@ func (m *Model) startAPIServer() tea.Cmd {
 			if eb == nil {
 				return nil
 			}
-			eb2 := eb // avoid lock issues — use public API
 			var entries []api.ErrorEntry
-			for _, e := range eb2.Errors {
+			for _, e := range eb.SnapshotErrors() {
 				plainLines := make([]string, len(e.Lines))
 				for j, l := range e.Lines {
 					plainLines[j] = process.StripAnsi(l)
@@ -106,8 +116,9 @@ func (m *Model) startAPIServer() tea.Cmd {
 			return entries
 		},
 		GetPorts: func() []api.PortMapping {
+			apps := snap.get()
 			var mappings []api.PortMapping
-			for _, app := range *apps {
+			for _, app := range apps {
 				for _, p := range app.Ports {
 					mappings = append(mappings, api.PortMapping{
 						Port:    p,
@@ -119,14 +130,15 @@ func (m *Model) startAPIServer() tea.Cmd {
 			return mappings
 		},
 		GetStats: func() []api.AppStats {
+			apps := snap.get()
 			var stats []api.AppStats
-			for _, app := range *apps {
+			for _, app := range apps {
 				s := api.AppStats{
 					Name:   app.Name,
 					Status: string(pm.GetStatus(app.Name)),
 					PID:    pm.PID(app.Name),
 				}
-				if rs := model.resourceMonitor.GetStats(app.Name); rs != nil {
+				if rs := resMon.GetStats(app.Name); rs != nil {
 					s.CPU = rs.Current.CPUPercent
 					s.MemRSS = rs.Current.MemoryRSS
 					s.AvgCPU = rs.AvgCPU
@@ -144,7 +156,15 @@ func (m *Model) startAPIServer() tea.Cmd {
 		},
 		ApprovalQueue: m.approvalQueue,
 		ExecuteAction: func(action, appName string, payload []byte) (string, error) {
-			return model.executeAPIAction(action, appName, payload)
+			resultCh := make(chan apiActionResult, 1)
+			actionCh <- apiActionMsg{
+				action:   action,
+				appName:  appName,
+				payload:  payload,
+				resultCh: resultCh,
+			}
+			result := <-resultCh
+			return result.message, result.err
 		},
 	}
 
@@ -217,6 +237,18 @@ func (m *Model) apiRegisterApp(payload []byte) (string, error) {
 		entry.Env["PORT"] = fmt.Sprintf("%d", port)
 	}
 
+	// Path traversal check: dir must be within project root
+	dir := entry.Dir
+	if dir != "" && !filepath.IsAbs(dir) {
+		dir = filepath.Join(m.projectRoot, dir)
+	}
+	if dir != "" {
+		relDir, err := filepath.Rel(m.projectRoot, dir)
+		if err != nil || strings.HasPrefix(relDir, "..") {
+			return "", fmt.Errorf("directory is outside the project root")
+		}
+	}
+
 	app := config.App{
 		Name:    entry.Name,
 		Dir:     entry.Dir,
@@ -230,6 +262,7 @@ func (m *Model) apiRegisterApp(payload []byte) (string, error) {
 	}
 
 	m.apps = append(m.apps, app)
+	m.appsSnap.refresh(m.apps)
 	m.saveConfig()
 	m.systemLog(fmt.Sprintf("App \"%s\" registered via API (dir: %s)", entry.Name, entry.Dir))
 	return fmt.Sprintf("registered app %q", entry.Name), nil
@@ -254,6 +287,7 @@ func (m *Model) apiRemoveApp(name string) (string, error) {
 	m.procManager.RemoveEntries(name)
 
 	m.apps = append(m.apps[:idx], m.apps[idx+1:]...)
+	m.appsSnap.refresh(m.apps)
 	m.saveConfig()
 	m.systemLog(fmt.Sprintf("App \"%s\" removed via API", name))
 	return fmt.Sprintf("removed app %q", name), nil
@@ -382,6 +416,7 @@ func (m *Model) apiScanApps() (string, error) {
 		return "no valid apps to add", nil
 	}
 
+	m.appsSnap.refresh(m.apps)
 	m.saveConfig()
 	m.systemLog(fmt.Sprintf("Scan added %d app(s) via API: %s", len(added), strings.Join(added, ", ")))
 	return fmt.Sprintf("added %d app(s): %s", len(added), strings.Join(added, ", ")), nil

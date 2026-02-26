@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,6 +13,44 @@ import (
 	"github.com/georgele/devctl/internal/process"
 	"github.com/georgele/devctl/internal/vault"
 )
+
+// appsSnapshotStore provides thread-safe read access to the apps list.
+// The TUI goroutine is the sole writer (via refresh); HTTP goroutines are readers.
+type appsSnapshotStore struct {
+	mu   sync.RWMutex
+	apps []config.App
+}
+
+func (s *appsSnapshotStore) refresh(apps []config.App) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]config.App, len(apps))
+	copy(cp, apps)
+	s.apps = cp
+}
+
+func (s *appsSnapshotStore) get() []config.App {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cp := make([]config.App, len(s.apps))
+	copy(cp, s.apps)
+	return cp
+}
+
+// apiActionMsg is sent from HTTP handler goroutines to the TUI goroutine
+// for mutating operations that must run in the single-threaded TUI context.
+type apiActionMsg struct {
+	action   string
+	appName  string
+	payload  []byte
+	resultCh chan apiActionResult
+}
+
+// apiActionResult is sent back from the TUI goroutine to the HTTP handler.
+type apiActionResult struct {
+	message string
+	err     error
+}
 
 // Focus area
 type focusArea int
@@ -123,6 +162,8 @@ type Model struct {
 	// HTTP API server
 	apiServer     *api.Server
 	approvalQueue *api.ApprovalQueue
+	appsSnap      *appsSnapshotStore
+	apiActionCh   chan apiActionMsg
 
 	// Approval modal
 	approvalMode bool
@@ -253,6 +294,11 @@ func New(projectRoot string, apps []config.App, startAll, restore bool) Model {
 	cfg := api.LoadDevctlConfig()
 	m.approvalQueue = api.NewApprovalQueue(cfg.Approval)
 
+	// Create apps snapshot store and action channel for thread-safe API access
+	m.appsSnap = &appsSnapshotStore{}
+	m.appsSnap.refresh(apps)
+	m.apiActionCh = make(chan apiActionMsg, 16)
+
 	return m
 }
 
@@ -277,6 +323,9 @@ func (m Model) Init() tea.Cmd {
 
 	// Start HTTP API server
 	cmds = append(cmds, m.startAPIServer())
+
+	// Listen for API action requests (mutations from HTTP goroutines)
+	cmds = append(cmds, m.listenForAPIActions())
 
 	// Listen for approval requests
 	if m.approvalQueue != nil {

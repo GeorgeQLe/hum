@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/georgele/devctl/internal/panicutil"
 )
 
 // Status represents the health status of an app.
@@ -79,7 +81,10 @@ func (c *Checker) Register(appName, url string, intervalMs int) {
 	}
 	c.apps[appName] = ac
 
-	go c.poll(appName, ac)
+	go func() {
+		defer panicutil.Recover("health poll")
+		c.poll(appName, ac)
+	}()
 }
 
 // Unregister stops health checking for an app.

@@ -140,6 +140,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approvalMode = true
 		return m, m.listenForApprovalRequests()
 
+	case apiActionMsg:
+		result, err := m.executeAPIAction(msg.action, msg.appName, msg.payload)
+		msg.resultCh <- apiActionResult{message: result, err: err}
+		m.appsSnap.refresh(m.apps)
+		return m, m.listenForAPIActions()
+
 	case DevReloadMsg:
 		return m.handleDevReload()
 

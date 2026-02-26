@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"net"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/georgele/devctl/internal/panicutil"
 )
 
 // Server is the HTTP API server embedded in the devctl process.
@@ -106,6 +109,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 
 	// Start serving
 	go func() {
+		defer panicutil.Recover("api server")
 		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Printf("API server error: %v", err)
 		}
@@ -143,11 +147,11 @@ func authMiddleware(token string, next http.Handler) http.Handler {
 
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
-			http.Error(w, `{"error":"missing authorization"}`, http.StatusUnauthorized)
+			writeError(w, http.StatusUnauthorized, "missing authorization")
 			return
 		}
-		if !strings.HasPrefix(auth, "Bearer ") || auth[7:] != token {
-			http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+		if !strings.HasPrefix(auth, "Bearer ") || subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
 

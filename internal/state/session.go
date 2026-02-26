@@ -20,7 +20,7 @@ func SaveSession(projectRoot string, runningApps []string) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(StatePath(projectRoot), data, 0644)
+	return os.WriteFile(StatePath(projectRoot), data, 0600)
 }
 
 // LoadSession reads the list of previously running app names.

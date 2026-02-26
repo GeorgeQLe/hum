@@ -196,6 +196,7 @@ func (m *Model) handleIPCAddApp(msg ipc.IPCRequestMsg) {
 	}
 
 	m.apps = append(m.apps, app)
+	m.appsSnap.refresh(m.apps)
 	m.saveConfig()
 	m.systemLog(fmt.Sprintf("App \"%s\" added via IPC (dir: %s)", entry.Name, entry.Dir))
 

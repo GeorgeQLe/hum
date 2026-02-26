@@ -146,6 +146,13 @@ func (m Model) listenForConfigChange() tea.Cmd {
 	}
 }
 
+func (m Model) listenForAPIActions() tea.Cmd {
+	ch := m.apiActionCh
+	return func() tea.Msg {
+		return <-ch
+	}
+}
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)

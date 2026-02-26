@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/georgele/devctl/internal/panicutil"
 )
 
 // Watcher watches apps.json for changes and notifies via a channel.
@@ -54,6 +55,7 @@ func (w *Watcher) SetIgnoreNext() {
 // Start begins watching for changes in a background goroutine.
 func (w *Watcher) Start() {
 	go func() {
+		defer panicutil.Recover("config watcher")
 		var debounceTimer *time.Timer
 
 		for {

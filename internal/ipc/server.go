@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/georgele/devctl/internal/panicutil"
 )
 
 var socketDir = filepath.Join(os.TempDir(), "devctl-sockets")
@@ -107,6 +109,7 @@ func (s *Server) Requests() <-chan IPCRequestMsg {
 // Start begins accepting connections in a background goroutine.
 func (s *Server) Start() {
 	go func() {
+		defer panicutil.Recover("ipc accept loop")
 		for {
 			conn, err := s.listener.Accept()
 			if err != nil {
@@ -117,17 +120,20 @@ func (s *Server) Start() {
 					continue
 				}
 			}
-			go s.handleConnection(conn)
+			go func() {
+				defer panicutil.Recover("ipc connection handler")
+				s.handleConnection(conn)
+			}()
 		}
 	}()
 }
 
-// Stop closes the server and removes the socket file.
+// Stop closes the server and removes the socket file. Safe to call multiple times.
 func (s *Server) Stop() {
-	close(s.stopCh)
-	s.listener.Close()
-	os.Remove(s.socketPath)
 	s.closeOnce.Do(func() {
+		close(s.stopCh)
+		s.listener.Close()
+		os.Remove(s.socketPath)
 		close(s.requestCh)
 	})
 }

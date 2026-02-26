@@ -219,6 +219,15 @@ func (eb *ErrorBuffer) groupedErrorsLocked() []ErrorGroup {
 	return result
 }
 
+// SnapshotErrors returns a copy of all captured errors, safe for concurrent use.
+func (eb *ErrorBuffer) SnapshotErrors() []CapturedError {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	result := make([]CapturedError, len(eb.Errors))
+	copy(result, eb.Errors)
+	return result
+}
+
 // Count returns the number of captured errors.
 func (eb *ErrorBuffer) Count() int {
 	eb.mu.Lock()

@@ -121,7 +121,7 @@ func Load(projectRoot string) ([]App, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Auto-create empty config file (B9)
-			if writeErr := os.WriteFile(configPath, []byte("[]\n"), 0644); writeErr != nil {
+			if writeErr := os.WriteFile(configPath, []byte("[]\n"), 0600); writeErr != nil {
 				return nil, fmt.Errorf("could not create %s: %w", configPath, writeErr)
 			}
 			return []App{}, nil
@@ -139,7 +139,7 @@ func Load(projectRoot string) ([]App, error) {
 			if json.Unmarshal(bakData, &bakApps) == nil {
 				fmt.Fprintf(os.Stderr, "warning: %s was corrupt, restored from backup\n", configPath)
 				// Restore the backup
-				os.WriteFile(configPath, bakData, 0644) //nolint:errcheck // best-effort restore
+				os.WriteFile(configPath, bakData, 0600) //nolint:errcheck // best-effort restore
 				apps = bakApps
 			} else {
 				return nil, fmt.Errorf("invalid JSON in %s (backup also corrupt): %w", configPath, err)
@@ -229,11 +229,11 @@ func Save(projectRoot string, apps []App) error {
 	// Backup existing file before writing
 	bakPath := configPath + ".bak"
 	if existing, err := os.ReadFile(configPath); err == nil {
-		os.WriteFile(bakPath, existing, 0644) //nolint:errcheck // best-effort backup
+		os.WriteFile(bakPath, existing, 0600) //nolint:errcheck // best-effort backup
 	}
 
 	tmp := configPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, configPath)

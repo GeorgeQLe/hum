@@ -3,6 +3,8 @@ package process
 import (
 	"sync"
 	"time"
+
+	"github.com/georgele/devctl/internal/panicutil"
 )
 
 const (
@@ -206,7 +208,10 @@ func (rm *ResourceMonitor) Register(appName string, cfg ThresholdConfig) {
 	am := newAppMonitor(cfg)
 	rm.apps[appName] = am
 
-	go rm.poll(appName, am)
+	go func() {
+		defer panicutil.Recover("resource monitor")
+		rm.poll(appName, am)
+	}()
 }
 
 // Unregister stops polling for the named app.
