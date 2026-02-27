@@ -2,7 +2,7 @@
 
 A terminal UI for managing multiple local dev servers from a single pane.
 
-![Go](https://img.shields.io/badge/go-%3E%3D1.22-00ADD8)
+![Go](https://img.shields.io/badge/go-%3E%3D1.24-00ADD8)
 
 ## Overview
 
@@ -52,7 +52,7 @@ devctl --start-all  # launch and start all apps immediately
 devctl --restore    # restore previous session (restart apps that were running when you last quit)
 ```
 
-Requires a TTY terminal with at least 40 columns and 12 rows.
+Recommended: a TTY terminal with at least 40 columns and 12 rows for best display.
 
 ## CLI Subcommands
 
@@ -61,14 +61,21 @@ These commands communicate with a running TUI instance via IPC (Unix socket), so
 ```sh
 devctl ping                          # check if a TUI instance is running
 devctl status                        # show app names, statuses, PIDs, and ports
+devctl start <name|all>              # start an app (auto-resolves port conflicts)
+devctl stop <name|all>               # stop an app
+devctl restart <name|all>            # restart an app
 devctl add <dir>                     # add an app from a directory
 devctl add <dir> --name my-app       # override detected name
 devctl add <dir> --command "npm dev" # override detected command
 devctl add <dir> --ports 3000,3001   # specify ports
 devctl add <dir> --start             # start the app immediately after adding
+devctl scan                          # auto-detect apps in project tree
+devctl scan --write                  # add detected apps to apps.json
+devctl scan --json                   # output detected apps as JSON
 devctl stats                         # show CPU, memory, peak, and uptime for all apps
 devctl stats --watch                 # live refresh every 2 seconds
 devctl stats --json                  # JSON output for scripting
+devctl dev                           # development mode with auto-rebuild on source changes
 ```
 
 ## TUI Commands
@@ -91,6 +98,7 @@ devctl stats --json                  # JSON output for scripting
 | `unpin <name>`         | Unpin an app                           |
 | `export <name> [file]` | Export app logs to file                |
 | `clear-errors [name\|all]` | Clear detected errors              |
+| `watch [name] [on\|off]` | View/toggle file watching            |
 | `list`                 | List configured apps with details      |
 | `help`                 | Show available commands                |
 | `quit`                 | Stop all apps and exit                 |
@@ -168,6 +176,21 @@ Press `f` from the command line to enter filter mode. Type a regex pattern to fi
 | `j/k`     | Navigate apps      |
 | `Esc`/`q` | Exit top mode      |
 
+### Error Stream Mode
+
+Press `x` to enter error stream mode, which shows only detected errors for the selected app.
+
+| Key       | Action                            |
+| --------- | --------------------------------- |
+| `j/k`     | Navigate errors                   |
+| `Enter`   | Toggle expand/collapse error      |
+| `e`       | Copy full error block to clipboard |
+| `m`       | Copy error message to clipboard   |
+| `l`       | Copy source location to clipboard |
+| `c`       | Clear all errors for current app  |
+| `PgUp/Dn` | Scroll error list                |
+| `x`/`Esc` | Exit error stream mode           |
+
 ### Scan Mode
 
 | Key        | Action                               |
@@ -190,6 +213,8 @@ Apps are stored in `apps.json` at the project root. Each entry has:
   "dir": "apps/my-app",
   "command": "pnpm dev",
   "ports": [3000],
+  "project": "monorepo",
+  "autoStart": true,
   "autoRestart": true,
   "restartDelay": 3000,
   "maxRestarts": 5,
@@ -212,6 +237,11 @@ Apps are stored in `apps.json` at the project root. Each entry has:
     "dev": "npm run dev",
     "build": "npm run build",
     "test": "npm test"
+  },
+  "watch": {
+    "paths": ["src"],
+    "extensions": [".ts", ".go"],
+    "ignore": ["node_modules", "dist"]
   }
 }
 ```
@@ -222,6 +252,8 @@ Apps are stored in `apps.json` at the project root. Each entry has:
 | **dir** | Directory relative to project root (required) |
 | **command** | Shell command to run (required) |
 | **ports** | Array of ports the app listens on (required) |
+| **project** | Optional project grouping label |
+| **autoStart** | Auto-start the app when devctl launches (default: false) |
 | **autoRestart** | Restart on crash (default: false) |
 | **restartDelay** | Milliseconds before restart (default: 3000) |
 | **maxRestarts** | Max restart attempts before giving up (default: 5) |
@@ -233,6 +265,7 @@ Apps are stored in `apps.json` at the project root. Each entry has:
 | **notifications** | Enable desktop notifications for crashes and resource alerts |
 | **pinned** | Pin app to the top of the sidebar |
 | **commands** | Named command variants, runnable via `run <name> <type>` |
+| **watch** | File watching config for auto-restart on source changes (`paths`, `extensions`, `ignore`) |
 
 ## Groups & Dependencies
 
@@ -302,7 +335,7 @@ Press `f` from the command line to enter filter mode. Type a regex pattern to sh
 
 ## Error Detection
 
-devctl scans process output for common error patterns (`ERROR`, `Exception`, `TypeError`, `FATAL`, stack traces, etc.) and:
+devctl scans process output for common error patterns (`ERROR`, `Failed`, `Exception`, `TypeError`, `FATAL`, stack traces, etc.) and:
 
 - Shows an error count with a red `!` indicator in the sidebar
 - Displays a notification banner when errors are detected
@@ -407,6 +440,29 @@ Use `autorestart` command to view status or toggle at runtime:
 - `autorestart` — Show status for all apps
 - `autorestart <name>` — Toggle auto-restart for an app
 - `autorestart <name> on|off` — Enable/disable explicitly
+
+## File Watching
+
+Configure file watching to auto-restart an app when source files change:
+
+```json
+{
+  "watch": {
+    "paths": ["src", "lib"],
+    "extensions": [".ts", ".go"],
+    "ignore": ["node_modules", "dist"]
+  }
+}
+```
+
+- **paths** — Directories to watch, relative to the app's `dir`
+- **extensions** — File extensions to trigger on (e.g., `[".ts", ".go"]`)
+- **ignore** — Glob patterns or directory names to exclude
+
+Use `watch` in the TUI to view status or toggle at runtime:
+- `watch` — Show watch status for all apps
+- `watch <name>` — Toggle watching for an app
+- `watch <name> on|off` — Enable/disable explicitly
 
 ## Config Reload
 
@@ -539,8 +595,12 @@ envsafe maintains an append-only audit log of all vault operations:
 
 ```sh
 envsafe audit                           # view all audit entries
-envsafe audit --action set              # filter by action
+envsafe audit --action set              # filter by action (set, get, delete, rotate)
+envsafe audit --user alice@example.com  # filter by user
+envsafe audit --env production          # filter by environment
+envsafe audit --since 2024-01-01        # filter entries after date (YYYY-MM-DD)
 envsafe audit --format json             # JSON output
+envsafe audit --format csv              # CSV output
 ```
 
 ### Interactive Browser
@@ -569,8 +629,8 @@ envsafe browse       # TUI vault explorer with 4-view navigation
 | `user` | Manage team members (add/list/remove/role) |
 | `audit` | View audit log |
 | `share` | Create a one-time share link (requires server) |
-| `login` | Authenticate with server (experimental) |
-| `serve` | Start the server (experimental) |
+| `login` | Authenticate with server (**experimental** — not yet functional) |
+| `serve` | Start the server (**experimental** — not yet functional) |
 
 ### Security
 
