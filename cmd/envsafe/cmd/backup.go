@@ -21,6 +21,9 @@ func BackupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup",
 		Short: "Back up the vault to a compressed archive",
+		Long:  "Create a compressed, encrypted backup of the entire vault directory.",
+		Example: `  envsafe backup
+  envsafe backup -o my-backup.tar.gz`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {
@@ -37,7 +40,7 @@ func BackupCmd() *cobra.Command {
 
 			vaultDir := vault.VaultPath(projectRoot)
 
-			f, err := os.Create(output)
+			f, err := os.OpenFile(output, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 			if err != nil {
 				return fmt.Errorf("creating backup file: %w", err)
 			}
@@ -167,7 +170,7 @@ func RestoreCmd() *cobra.Command {
 					if err != nil {
 						return fmt.Errorf("creating file: %w", err)
 					}
-					if _, err := io.Copy(outFile, tr); err != nil {
+					if _, err := io.Copy(outFile, io.LimitReader(tr, 100*1024*1024)); err != nil {
 						outFile.Close()
 						return fmt.Errorf("writing file: %w", err)
 					}

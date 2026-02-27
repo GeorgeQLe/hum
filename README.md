@@ -517,6 +517,8 @@ envsafe user role alice@example.com admin
 
 ### Password Management
 
+Vault passwords must be at least 8 characters.
+
 ```sh
 envsafe passwd       # change the vault master password
 envsafe unlock       # unlock and cache password in OS keychain
@@ -569,3 +571,12 @@ envsafe browse       # TUI vault explorer with 4-view navigation
 | `share` | Create a one-time share link (requires server) |
 | `login` | Authenticate with server (experimental) |
 | `serve` | Start the server (experimental) |
+
+### Security
+
+- **Encryption:** AES-256-GCM with Argon2id key derivation. Vault files are safe to commit to git.
+- **Backup permissions:** Backup archives are created with `0600` permissions (owner-only read/write). Restore limits extracted file sizes to 100 MB each to prevent decompression bombs.
+- **Password requirements:** Minimum 8 characters enforced during vault init and password change.
+- **Share safety:** The `share` command blocks non-localhost HTTP servers by default. Use `--insecure` to override. Share expiry is capped at 7 days.
+- **Server JWT:** The `serve` command generates a random JWT secret if none is provided via `--jwt-secret`. Tokens will not survive server restarts unless a stable secret is configured.
+- **Memory hygiene:** Password byte slices are zeroed after conversion to string to minimize exposure window.

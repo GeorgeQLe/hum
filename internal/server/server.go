@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -32,6 +34,14 @@ type Server struct {
 func New(cfg Config) *Server {
 	if len(cfg.AllowedOrigins) == 0 {
 		cfg.AllowedOrigins = []string{"http://localhost:5173"}
+	}
+	if cfg.JWTSecret == "" {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			log.Fatalf("failed to generate random JWT secret: %v", err)
+		}
+		cfg.JWTSecret = hex.EncodeToString(b)
+		log.Println("WARNING: No --jwt-secret provided; using a randomly generated secret (tokens will not survive restarts)")
 	}
 	s := &Server{
 		config: cfg,

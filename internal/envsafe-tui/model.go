@@ -61,6 +61,7 @@ type Model struct {
 
 	// Audit log
 	auditEntries []audit.Entry
+	auditErr     error
 	auditIdx     int
 	auditScroll  int
 
@@ -224,6 +225,11 @@ func (m *Model) viewAuditLog() string {
 	var b strings.Builder
 	b.WriteString(styleBold.Render("Audit Log") + "\n\n")
 
+	if m.auditErr != nil {
+		b.WriteString(fmt.Sprintf("  Error loading audit log: %v\n", m.auditErr))
+		return b.String()
+	}
+
 	if len(m.auditEntries) == 0 {
 		b.WriteString(styleDim.Render("  (no audit entries)") + "\n")
 		return b.String()
@@ -355,7 +361,8 @@ func (m *Model) loadAudit() {
 	if m.auditLogger == nil {
 		return
 	}
-	entries, _ := m.auditLogger.Read()
+	entries, err := m.auditLogger.Read()
+	m.auditErr = err
 	m.auditEntries = entries
 	m.auditIdx = 0
 	m.auditScroll = 0

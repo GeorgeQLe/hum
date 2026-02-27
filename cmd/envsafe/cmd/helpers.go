@@ -95,11 +95,15 @@ func openAndUnlock(projectRoot string) (*vault.Vault, error) {
 func promptPassword(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr) // newline after password
+	fmt.Fprintln(os.Stderr)
 	if err != nil {
 		return "", fmt.Errorf("reading password: %w", err)
 	}
-	return string(b), nil
+	pass := string(b)
+	for i := range b {
+		b[i] = 0
+	}
+	return pass, nil
 }
 
 // promptPasswordConfirm prompts for a password twice and verifies they match.
@@ -110,6 +114,9 @@ func promptPasswordConfirm(prompt string) (string, error) {
 	}
 	if pass1 == "" {
 		return "", fmt.Errorf("password cannot be empty")
+	}
+	if len(pass1) < 8 {
+		return "", fmt.Errorf("password must be at least 8 characters")
 	}
 
 	pass2, err := promptPassword("Confirm password: ")

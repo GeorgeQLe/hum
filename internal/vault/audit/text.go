@@ -7,10 +7,8 @@ import (
 	"time"
 )
 
-// ExportPDF writes the compliance report as a simple text-based report.
-// A full PDF implementation would use github.com/jung-kurt/gofpdf.
-// This provides the report content in a print-ready format.
-func (r *ComplianceReport) ExportPDF(w io.Writer) error {
+// ExportText writes the compliance report as a plain text report.
+func (r *ComplianceReport) ExportText(w io.Writer) error {
 	var buf bytes.Buffer
 
 	// Header

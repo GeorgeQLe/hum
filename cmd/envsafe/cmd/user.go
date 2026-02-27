@@ -74,7 +74,8 @@ func UserCmd() *cobra.Command {
 
 			fmt.Printf("Added %s as a team member (role: developer).\n", email)
 			fmt.Printf("Private key written to: %s\n", keyFile)
-			fmt.Printf("Share this file securely with the user, then delete it.\n")
+			fmt.Fprintf(os.Stderr, "WARNING: Delete this key file after sharing it securely with the user.\n")
+			fmt.Fprintf(os.Stderr, "  Run: rm %s\n", keyFile)
 			fmt.Printf("Public key stored in vault config.\n")
 
 			return nil

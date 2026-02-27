@@ -142,13 +142,13 @@ func TestComplianceReportPDF(t *testing.T) {
 	)
 
 	var buf bytes.Buffer
-	if err := report.ExportPDF(&buf); err != nil {
-		t.Fatalf("ExportPDF() error: %v", err)
+	if err := report.ExportText(&buf); err != nil {
+		t.Fatalf("ExportText() error: %v", err)
 	}
 
 	output := buf.String()
 	if output == "" {
-		t.Error("ExportPDF() should produce non-empty output")
+		t.Error("ExportText() should produce non-empty output")
 	}
 }
 

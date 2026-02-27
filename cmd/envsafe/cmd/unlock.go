@@ -13,6 +13,8 @@ func UnlockCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "unlock",
 		Short: "Unlock vault and cache key in OS keychain",
+		Long:  "Unlock the vault and cache the password in the OS keychain for subsequent commands.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {

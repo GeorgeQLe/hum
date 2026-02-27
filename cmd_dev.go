@@ -10,8 +10,13 @@ func newDevCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "dev",
 		Short: "Development mode with auto-rebuild on source changes",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return dev.New(".").Run()
+			s, err := dev.New(".")
+			if err != nil {
+				return err
+			}
+			return s.Run()
 		},
 	}
 }

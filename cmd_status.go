@@ -16,6 +16,8 @@ func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show running instance status",
+		Long:  "Show the status of all managed apps in the current devctl instance.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus()
 		},

@@ -13,7 +13,11 @@ func SetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a secret",
-		Args:  cobra.ExactArgs(2),
+		Long: `Store an encrypted secret in the vault for the specified environment.
+The key must match [A-Za-z_][A-Za-z0-9_.-]*.`,
+		Example: `  envsafe set API_KEY sk-1234
+  envsafe set -e production DATABASE_URL postgres://...`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, value := args[0], args[1]
 

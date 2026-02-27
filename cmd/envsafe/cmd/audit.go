@@ -20,6 +20,12 @@ func AuditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "View audit log",
+		Long: `View the audit log showing who accessed or modified secrets and when.
+Supports filtering by user, action, environment, and date.`,
+		Example: `  envsafe audit
+  envsafe audit --action set --since 2024-01-01
+  envsafe audit --format json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {

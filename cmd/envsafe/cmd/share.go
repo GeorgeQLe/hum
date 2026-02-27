@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/georgele/devctl/internal/vault"
 	"github.com/spf13/cobra"
@@ -15,13 +17,26 @@ func ShareCmd() *cobra.Command {
 	var env string
 	var serverURL string
 	var expiresIn int
+	var insecure bool
 
 	cmd := &cobra.Command{
 		Use:   "share <key>",
 		Short: "Create a one-time share link",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			warnIfInsecureHTTP(serverURL)
+			if !insecure {
+				u, err := url.Parse(serverURL)
+				if err == nil {
+					host := u.Hostname()
+					if host != "localhost" && host != "127.0.0.1" && host != "::1" && !strings.HasPrefix(serverURL, "https://") {
+						return fmt.Errorf("refusing to send secrets over unencrypted HTTP to non-local server %q (use --insecure to override)", serverURL)
+					}
+				}
+			}
+
+			if expiresIn <= 0 || expiresIn > 604800 {
+				return fmt.Errorf("--expires must be between 1 and 604800 seconds (7 days)")
+			}
 
 			key := args[0]
 
@@ -88,6 +103,7 @@ func ShareCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&env, "env", "e", vault.DefaultEnv, "Source environment")
 	cmd.Flags().StringVar(&serverURL, "server", "http://localhost:8484", "Server URL")
 	cmd.Flags().IntVar(&expiresIn, "expires", 3600, "Link expiry in seconds")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "Allow HTTP with non-local servers")
 
 	return cmd
 }

@@ -13,7 +13,10 @@ func GetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <key>",
 		Short: "Retrieve a secret",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Retrieve and print a single secret value from the vault.",
+		Example: `  envsafe get API_KEY
+  envsafe get -e production DATABASE_URL`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 

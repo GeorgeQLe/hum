@@ -161,7 +161,8 @@ func (h *Handler) AppLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // AppLogsStream handles GET /api/apps/{name}/logs/stream (SSE).
-// This is a Phase 2 feature stub that returns a basic SSE stream.
+// Sends existing logs as an initial batch, then polls for new log lines
+// and forwards them as SSE data frames in real time.
 func (h *Handler) AppLogsStream(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
@@ -182,23 +183,36 @@ func (h *Handler) AppLogsStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	// Send existing logs as initial batch
-	logs := h.deps.GetLogs(name, 100)
+	logs := h.deps.GetLogs(name, 5000)
 	for _, l := range logs {
 		data, _ := json.Marshal(l)
 		fmt.Fprintf(w, "data: %s\n\n", data)
 	}
 	flusher.Flush()
+	sentCount := len(logs)
 
-	// Keep connection alive until client disconnects
+	// Poll for new logs and send keepalives
 	ctx := r.Context()
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
+	pollTicker := time.NewTicker(200 * time.Millisecond)
+	defer pollTicker.Stop()
+	keepaliveTicker := time.NewTicker(15 * time.Second)
+	defer keepaliveTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-pollTicker.C:
+			allLogs := h.deps.GetLogs(name, 5000)
+			if len(allLogs) > sentCount {
+				for _, l := range allLogs[sentCount:] {
+					data, _ := json.Marshal(l)
+					fmt.Fprintf(w, "data: %s\n\n", data)
+				}
+				flusher.Flush()
+				sentCount = len(allLogs)
+			}
+		case <-keepaliveTicker.C:
 			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		}

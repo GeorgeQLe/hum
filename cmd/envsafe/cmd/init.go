@@ -19,7 +19,9 @@ func InitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a new encrypted vault",
-		Long:  "Creates a .envsafe/ directory with an encrypted vault for storing secrets.",
+		Long: "Creates a .envsafe/ directory with an encrypted vault for storing secrets.",
+		Example: `  envsafe init --name myproject
+  envsafe init --import`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {

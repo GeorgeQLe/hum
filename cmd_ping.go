@@ -14,6 +14,7 @@ func newPingCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ping",
 		Short: "Check if devctl is running",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPing()
 		},

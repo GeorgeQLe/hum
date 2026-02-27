@@ -14,12 +14,14 @@ import (
 
 func ServeCmd() *cobra.Command {
 	var addr string
+	var jwtSecret string
 	var tlsCert string
 	var tlsKey string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the envsafe server [EXPERIMENTAL — not yet functional]",
+		Args:  cobra.NoArgs,
 		Long: `Start the envsafe server.
 
 WARNING: The server is experimental and not yet functional.
@@ -30,9 +32,10 @@ Use the local vault commands (init, set, get, list, etc.) for production use.`,
 			fmt.Fprintln(os.Stderr, "Use local vault commands for production workflows.")
 			fmt.Fprintln(os.Stderr, "")
 			cfg := server.Config{
-				Addr:    addr,
-				TLSCert: tlsCert,
-				TLSKey:  tlsKey,
+				Addr:      addr,
+				JWTSecret: jwtSecret,
+				TLSCert:   tlsCert,
+				TLSKey:    tlsKey,
 			}
 
 			srv := server.New(cfg)
@@ -59,6 +62,7 @@ Use the local vault commands (init, set, get, list, etc.) for production use.`,
 	}
 
 	cmd.Flags().StringVar(&addr, "addr", ":8484", "Server listen address")
+	cmd.Flags().StringVar(&jwtSecret, "jwt-secret", "", "JWT signing secret (generated if not set)")
 	cmd.Flags().StringVar(&tlsCert, "tls-cert", "", "TLS certificate file")
 	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "TLS key file")
 	cmd.MarkFlagsRequiredTogether("tls-cert", "tls-key")

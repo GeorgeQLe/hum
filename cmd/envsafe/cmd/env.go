@@ -15,6 +15,12 @@ func EnvCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "env",
 		Short: "Export all secrets as KEY=VALUE",
+		Long: `Export all secrets as KEY='VALUE' pairs, suitable for shell eval or .env files.
+Output is sorted alphabetically for deterministic results.`,
+		Example: `  envsafe env
+  envsafe env -e production > .env
+  eval $(envsafe env)`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {

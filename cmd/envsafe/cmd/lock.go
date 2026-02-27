@@ -12,6 +12,8 @@ func LockCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "lock",
 		Short: "Clear cached key from OS keychain",
+		Long:  "Clear the cached vault password from the OS keychain.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {

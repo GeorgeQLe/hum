@@ -83,7 +83,7 @@ A: Yes, documented as a known limitation. Secrets are visible in `/proc/<pid>/en
 ### Enterprise Features
 
 **Q: What compliance reports?**
-A: Access log, secret age, user permissions. Export as JSON, CSV, or PDF (Go-native via gofpdf).
+A: Access log, secret age, user permissions. Export as JSON, CSV, or plain text.
 
 **Q: Secret rotation?**
 A: Manual rotation with reminders. Previous values stored for rollback. Rotation history tracked per secret.
@@ -102,6 +102,6 @@ A: Standalone Bubble Tea TUI via `envsafe browse`. Browse secrets, environments,
 
 1. **No automatic rotation** — manual rotation only, with reminder support
 2. **No secrets socket** — direct env injection (documented limitation)
-3. **PDF via gofpdf** — Go-native, no external dependencies (wkhtmltopdf, etc.)
+3. **Plain text export** — Go-native, no external dependencies
 4. **REST over gRPC** — simpler for web UI consumption and broader compatibility
 5. **Row-level multi-tenancy** — single database, `tenant_id` on every table (vs. schema-per-tenant)

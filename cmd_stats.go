@@ -19,6 +19,11 @@ func newStatsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stats",
 		Short: "Show resource statistics",
+		Long:  "Show CPU, memory, and uptime statistics for all managed apps.",
+		Example: `  devctl stats
+  devctl stats --watch
+  devctl stats --json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStats(statsWatch, statsJSON)
 		},

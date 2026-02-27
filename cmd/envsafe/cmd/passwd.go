@@ -14,6 +14,7 @@ func PasswdCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "passwd",
 		Short: "Change the vault master password",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {
@@ -48,11 +49,13 @@ func PasswdCmd() *cobra.Command {
 
 			// Audit log
 			logger := audit.NewLogger(vault.VaultPath(projectRoot))
-			_ = logger.Log(audit.Entry{
+			if err := logger.Log(audit.Entry{
 				Action:  "password_change",
 				User:    "local",
 				Details: "vault master password changed",
-			})
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to write audit log: %v\n", err)
+			}
 
 			fmt.Println("Vault password changed successfully.")
 			return nil

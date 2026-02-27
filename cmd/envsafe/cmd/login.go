@@ -20,6 +20,7 @@ func LoginCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate with envsafe server [EXPERIMENTAL — server not yet functional]",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			warnIfInsecureHTTP(serverURL)
 

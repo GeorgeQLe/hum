@@ -44,15 +44,18 @@ type Supervisor struct {
 }
 
 // New creates a supervisor for the given project directory.
-func New(projectDir string) *Supervisor {
-	abs, _ := filepath.Abs(projectDir)
+func New(projectDir string) (*Supervisor, error) {
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve project dir: %w", err)
+	}
 	hash := sha256.Sum256([]byte(abs))
 	tmpBinary := filepath.Join(os.TempDir(), fmt.Sprintf("devctl-dev-%x", hash[:8]))
 	return &Supervisor{
 		projectDir: abs,
 		tmpBinary:  tmpBinary,
 		firstRun:   true,
-	}
+	}, nil
 }
 
 // Run starts the supervisor loop: build → launch child → watch → rebuild → restart.
@@ -169,7 +172,9 @@ func (s *Supervisor) runChildLoop(child *exec.Cmd, watcher *fsnotify.Watcher, si
 
 		case err := <-childDone:
 			if pendingRebuild {
-				_ = err
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[dev] child process exited: %v\n", err)
+				}
 				return loopRebuild, nil
 			}
 			// Child exited on its own (user quit)

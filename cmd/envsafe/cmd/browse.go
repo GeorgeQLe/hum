@@ -16,6 +16,7 @@ func BrowseCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "browse",
 		Short: "Open interactive TUI browser",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {

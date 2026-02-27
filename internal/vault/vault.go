@@ -19,7 +19,11 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.WriteFile(tmp, data, perm); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp) // clean up on rename failure
+		return err
+	}
+	return nil
 }
 
 const (

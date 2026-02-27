@@ -19,6 +19,12 @@ func newScanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scan",
 		Short: "Auto-detect apps in project tree",
+		Long: `Auto-detect apps in the project tree by looking for common frameworks and tools.
+Detected apps can be written to apps.json with --write.`,
+		Example: `  devctl scan
+  devctl scan --write
+  devctl scan --json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runScan(scanJSON, scanWrite)
 		},
