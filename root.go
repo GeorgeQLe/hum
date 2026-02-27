@@ -89,7 +89,7 @@ func runTUI(startAll, restore bool) error {
 
 			// Write crash log
 			crashDir := filepath.Join(os.TempDir(), "humrun-crashes")
-			if err := os.MkdirAll(crashDir, 0755); err == nil {
+			if err := os.MkdirAll(crashDir, 0700); err == nil {
 				crashFile := filepath.Join(crashDir, fmt.Sprintf("crash-%d.log", time.Now().Unix()))
 				content := fmt.Sprintf("humrun panic: %v\n\n%s", r, stack)
 				os.WriteFile(crashFile, []byte(content), 0600) //nolint:errcheck // best-effort crash log

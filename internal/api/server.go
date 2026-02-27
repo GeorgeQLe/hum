@@ -79,8 +79,9 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	mux.HandleFunc("POST /api/apps/{name}/restart", handler.RestartApp)
 	mux.HandleFunc("POST /api/apps/scan", handler.ScanApps)
 
-	// Wrap with auth middleware
-	authed := authMiddleware(token, mux)
+	// Wrap with auth middleware and rate limiting (100 burst, 10 req/s sustained)
+	limiter := newRateLimiter(100, 10.0)
+	authed := rateLimitMiddleware(limiter, authMiddleware(token, mux))
 
 	srv := &http.Server{
 		Handler:      authed,

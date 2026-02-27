@@ -51,7 +51,7 @@ func PasswdCmd() *cobra.Command {
 			logger := audit.NewLogger(vault.VaultPath(projectRoot))
 			if err := logger.Log(audit.Entry{
 				Action:  "password_change",
-				User:    "local",
+				User:    localUsername(),
 				Details: "vault master password changed",
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to write audit log: %v\n", err)

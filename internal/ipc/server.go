@@ -88,9 +88,11 @@ func NewServer(projectRoot string) (*Server, error) {
 		return nil, err
 	}
 
-	// Set permissions
+	// Set permissions — refuse to start if we can't secure the socket
 	if err := os.Chmod(socketPath, 0600); err != nil {
-		log.Printf("warning: could not set socket permissions: %v", err)
+		listener.Close()
+		os.Remove(socketPath)
+		return nil, fmt.Errorf("setting socket permissions: %w", err)
 	}
 
 	return &Server{

@@ -2,6 +2,7 @@ package audit
 
 import (
 	"bytes"
+	"os"
 	"testing"
 	"time"
 )
@@ -95,6 +96,84 @@ func TestReadFiltered(t *testing.T) {
 	entries, _ = logger.ReadFiltered("", "", "prod", time.Time{})
 	if len(entries) != 1 {
 		t.Errorf("filter by env: got %d entries, want 1", len(entries))
+	}
+}
+
+func TestAuditHMACChain(t *testing.T) {
+	dir := t.TempDir()
+	hmacKey := []byte("test-hmac-key-for-audit-chain!!!")
+	logger := NewLoggerWithHMAC(dir, hmacKey)
+
+	// Log several entries
+	for i := 0; i < 5; i++ {
+		logger.Log(Entry{Action: "set", User: "admin", Environment: "dev", Key: "KEY"})
+	}
+
+	// Verify the chain is intact
+	if err := logger.VerifyChain(hmacKey); err != nil {
+		t.Fatalf("VerifyChain() should pass on untampered log: %v", err)
+	}
+}
+
+func TestAuditTamperDetection(t *testing.T) {
+	dir := t.TempDir()
+	hmacKey := []byte("test-hmac-key-for-audit-chain!!!")
+	logger := NewLoggerWithHMAC(dir, hmacKey)
+
+	// Log entries
+	logger.Log(Entry{Action: "set", User: "admin", Environment: "dev", Key: "KEY1"})
+	logger.Log(Entry{Action: "set", User: "admin", Environment: "dev", Key: "KEY2"})
+	logger.Log(Entry{Action: "delete", User: "admin", Environment: "dev", Key: "KEY1"})
+
+	// Tamper with the log — modify the second entry
+	logPath := dir + "/audit.log"
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading log: %v", err)
+	}
+
+	// Replace "KEY2" with "KEY9" in the raw file
+	tampered := bytes.Replace(data, []byte(`"KEY2"`), []byte(`"KEY9"`), 1)
+	if err := os.WriteFile(logPath, tampered, 0600); err != nil {
+		t.Fatalf("writing tampered log: %v", err)
+	}
+
+	// Verify should now fail
+	if err := logger.VerifyChain(hmacKey); err == nil {
+		t.Fatal("VerifyChain() should detect tampering")
+	}
+}
+
+func TestAuditHMACChainWrongKey(t *testing.T) {
+	dir := t.TempDir()
+	hmacKey := []byte("correct-key-for-signing-entries!")
+	logger := NewLoggerWithHMAC(dir, hmacKey)
+
+	logger.Log(Entry{Action: "set", User: "admin", Environment: "dev", Key: "KEY"})
+
+	// Verify with wrong key should fail
+	wrongKey := []byte("wrong-key-should-fail-to-verify!")
+	if err := logger.VerifyChain(wrongKey); err == nil {
+		t.Fatal("VerifyChain() should fail with wrong key")
+	}
+}
+
+func TestAuditWithoutHMAC(t *testing.T) {
+	// Logger without HMAC key should still work (backward compatible)
+	dir := t.TempDir()
+	logger := NewLogger(dir) // no HMAC key
+
+	logger.Log(Entry{Action: "set", User: "admin", Environment: "dev"})
+
+	entries, err := logger.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].HMAC != "" {
+		t.Error("entries from logger without HMAC key should have no HMAC field")
 	}
 }
 

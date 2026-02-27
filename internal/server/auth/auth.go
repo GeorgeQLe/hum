@@ -44,11 +44,30 @@ func GenerateJWT(email, secret string) (string, error) {
 	return signingInput + "." + signature, nil
 }
 
+// jwtHeader represents the parsed JWT header.
+type jwtHeader struct {
+	Alg string `json:"alg"`
+	Typ string `json:"typ"`
+}
+
 // ValidateJWT verifies an HMAC-SHA256 JWT and returns claims.
 func ValidateJWT(tokenStr, secret string) (*JWTClaims, error) {
 	parts := strings.Split(tokenStr, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid token format")
+	}
+
+	// Verify algorithm is HS256 — reject alg:none and other algorithms
+	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("decoding header: %w", err)
+	}
+	var header jwtHeader
+	if err := json.Unmarshal(headerJSON, &header); err != nil {
+		return nil, fmt.Errorf("parsing header: %w", err)
+	}
+	if header.Alg != "HS256" {
+		return nil, fmt.Errorf("unsupported algorithm %q: only HS256 is allowed", header.Alg)
 	}
 
 	signingInput := parts[0] + "." + parts[1]

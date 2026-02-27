@@ -262,6 +262,50 @@ func TestConcurrentClients(t *testing.T) {
 	}
 }
 
+func TestSocketPermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectRoot := filepath.Join(tmpDir, "test-project")
+	os.MkdirAll(projectRoot, 0755)
+
+	server, err := NewServer(projectRoot)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer server.Stop()
+
+	// Verify socket file has 0600 permissions
+	info, err := os.Stat(server.socketPath)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	perm := info.Mode().Perm()
+	if perm != 0600 {
+		t.Errorf("socket permissions = %o, want 0600", perm)
+	}
+}
+
+func TestIPCPathTraversal(t *testing.T) {
+	// Verify SocketPath is safe with path traversal attempts
+	path1 := SocketPath("/some/../etc/passwd")
+	path2 := SocketPath("/some/project")
+
+	// Both should be in the socket directory, not escape it
+	if !filepath.IsAbs(path1) {
+		t.Error("socket path should be absolute")
+	}
+	if filepath.Dir(path1) != socketDir {
+		t.Errorf("socket path escaped socket dir: %q", path1)
+	}
+	if filepath.Dir(path2) != socketDir {
+		t.Errorf("socket path escaped socket dir: %q", path2)
+	}
+
+	// Path traversal in project root should produce different (safe) hashes
+	if path1 == path2 {
+		t.Error("different project roots should produce different socket paths")
+	}
+}
+
 func TestSocketPathDeterministic(t *testing.T) {
 	path1 := SocketPath("/some/project")
 	path2 := SocketPath("/some/project")

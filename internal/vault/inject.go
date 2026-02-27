@@ -23,6 +23,9 @@ func ResolveEnv(projectRoot string, plainEnv map[string]string, vaultEnv string)
 
 		// Try to unlock using cached password from env var or keychain
 		password := os.Getenv("HUMSAFE_PASSWORD")
+		if password != "" {
+			fmt.Fprintln(os.Stderr, "warning: using HUMSAFE_PASSWORD env var — visible in process listings. Prefer keychain caching ('humsafe unlock').")
+		}
 		if password == "" {
 			password, _ = keychain.Retrieve(filepath.Base(projectRoot))
 		}

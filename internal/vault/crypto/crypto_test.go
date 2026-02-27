@@ -142,6 +142,37 @@ func TestDecryptBadKeyLen(t *testing.T) {
 	}
 }
 
+func TestEncryptNonceUniqueness(t *testing.T) {
+	// GCM is catastrophically broken if nonces repeat under the same key.
+	// While crypto/rand makes this astronomically unlikely, this test proves
+	// that 1000 encryptions of the same plaintext produce distinct ciphertexts.
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	plaintext := []byte("same plaintext for all encryptions")
+
+	seen := make(map[string]struct{})
+	const iterations = 1000
+
+	for i := 0; i < iterations; i++ {
+		ciphertext, err := Encrypt(key, plaintext)
+		if err != nil {
+			t.Fatalf("Encrypt() iteration %d: %v", i, err)
+		}
+
+		ct := string(ciphertext)
+		if _, dup := seen[ct]; dup {
+			t.Fatalf("duplicate ciphertext at iteration %d — nonce collision!", i)
+		}
+		seen[ct] = struct{}{}
+	}
+
+	if len(seen) != iterations {
+		t.Errorf("expected %d unique ciphertexts, got %d", iterations, len(seen))
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	// Full round-trip: password → key derivation → encrypt → decrypt
 	salt, err := GenerateSalt()

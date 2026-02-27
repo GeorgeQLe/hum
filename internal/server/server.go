@@ -90,13 +90,16 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		}
 		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
+		} else if origin != "" {
+			// Explicitly deny non-whitelisted origins
+			w.Header().Set("Access-Control-Allow-Origin", "null")
 		}
+		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		// CSP
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -114,12 +117,14 @@ func authMiddleware(jwtSecret string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			log.Printf("AUTH FAILURE: missing/invalid Authorization header from %s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		claims, err := auth.ValidateJWT(tokenStr, jwtSecret)
 		if err != nil {
+			log.Printf("AUTH FAILURE: invalid token from %s %s %s: %v", r.RemoteAddr, r.Method, r.URL.Path, err)
 			jsonError(w, "invalid token", http.StatusUnauthorized)
 			return
 		}

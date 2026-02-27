@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,6 +13,14 @@ import (
 	"github.com/georgele/hum/internal/vault/keychain"
 	"golang.org/x/term"
 )
+
+// localUsername returns the current OS username for audit logging.
+func localUsername() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	return "local"
+}
 
 var validNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]*$`)
 
@@ -115,8 +124,8 @@ func promptPasswordConfirm(prompt string) (string, error) {
 	if pass1 == "" {
 		return "", fmt.Errorf("password cannot be empty")
 	}
-	if len(pass1) < 8 {
-		return "", fmt.Errorf("password must be at least 8 characters")
+	if len(pass1) < 12 {
+		return "", fmt.Errorf("password must be at least 12 characters")
 	}
 
 	pass2, err := promptPassword("Confirm password: ")

@@ -23,14 +23,19 @@ func GenerateTOTPSecret() (string, error) {
 	if _, err := rand.Read(secret); err != nil {
 		return "", fmt.Errorf("generating TOTP secret: %w", err)
 	}
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secret), nil
+	return base32.StdEncoding.EncodeToString(secret), nil
 }
 
 // GenerateTOTPCode generates a TOTP code for the current time.
 func GenerateTOTPCode(secret string, t time.Time) (string, error) {
-	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	// Accept both padded and unpadded base32 secrets for compatibility
+	key, err := base32.StdEncoding.DecodeString(secret)
 	if err != nil {
-		return "", fmt.Errorf("decoding secret: %w", err)
+		// Fall back to no-padding for legacy secrets
+		key, err = base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+		if err != nil {
+			return "", fmt.Errorf("decoding secret: %w", err)
+		}
 	}
 
 	counter := uint64(t.Unix()) / totpPeriod

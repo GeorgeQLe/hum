@@ -276,6 +276,73 @@ func TestExists(t *testing.T) {
 	}
 }
 
+func TestVaultFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	Init(dir, "test", "test-password")
+
+	// Check vault.enc permissions
+	vaultFile := filepath.Join(dir, VaultDir, VaultFile)
+	info, err := os.Stat(vaultFile)
+	if err != nil {
+		t.Fatalf("stat vault.enc: %v", err)
+	}
+	perm := info.Mode().Perm()
+	if perm != 0600 {
+		t.Errorf("vault.enc permissions = %o, want 0600", perm)
+	}
+
+	// Check config.json permissions
+	configFile := filepath.Join(dir, VaultDir, ConfigFile)
+	info, err = os.Stat(configFile)
+	if err != nil {
+		t.Fatalf("stat config.json: %v", err)
+	}
+	perm = info.Mode().Perm()
+	if perm != 0600 {
+		t.Errorf("config.json permissions = %o, want 0600", perm)
+	}
+
+	// Check .humsafe directory permissions
+	vaultDirPath := filepath.Join(dir, VaultDir)
+	info, err = os.Stat(vaultDirPath)
+	if err != nil {
+		t.Fatalf("stat .humsafe: %v", err)
+	}
+	perm = info.Mode().Perm()
+	if perm != 0700 {
+		t.Errorf(".humsafe directory permissions = %o, want 0700", perm)
+	}
+}
+
+func TestChangePassword(t *testing.T) {
+	dir := t.TempDir()
+	v, _ := Init(dir, "test", "old-password")
+
+	v.Set("development", "SECRET", "s3cret")
+
+	if err := v.ChangePassword("new-password"); err != nil {
+		t.Fatalf("ChangePassword() error: %v", err)
+	}
+	v.Lock()
+
+	// Re-open with new password
+	v2, _ := Open(dir)
+	if err := v2.Unlock("new-password"); err != nil {
+		t.Fatalf("Unlock with new password: %v", err)
+	}
+
+	got, _ := v2.Get("development", "SECRET")
+	if got != "s3cret" {
+		t.Errorf("Get() = %q, want %q", got, "s3cret")
+	}
+
+	// Old password should fail
+	v3, _ := Open(dir)
+	if err := v3.Unlock("old-password"); err == nil {
+		t.Error("Unlock with old password should fail")
+	}
+}
+
 func TestGetNonexistentEnv(t *testing.T) {
 	dir := t.TempDir()
 	v, _ := Init(dir, "test", "pass")

@@ -202,6 +202,150 @@ func TestHTTPServer(t *testing.T) {
 	resp5.Body.Close()
 }
 
+func TestAPIAuthRequired(t *testing.T) {
+	deps := ServerDeps{
+		GetApps:       func() []AppInfo { return nil },
+		GetAppDetail:  func(name string) *AppDetail { return nil },
+		GetLogs:       func(name string, lines int) []LogEntry { return nil },
+		GetErrors:     func(name string) []ErrorEntry { return nil },
+		GetPorts:      func() []PortMapping { return nil },
+		GetStats:      func() []AppStats { return nil },
+		ApprovalQueue: nil,
+		ExecuteAction: func(action, appName string, payload []byte) (string, error) { return "", nil },
+	}
+
+	srv, err := NewServer(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://127.0.0.1:" + strings.Split(srv.listener.Addr().String(), ":")[1]
+
+	// Test all authenticated endpoints reject without token
+	endpoints := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/status"},
+		{"GET", "/api/apps/test"},
+		{"GET", "/api/apps/test/logs"},
+		{"GET", "/api/apps/test/errors"},
+		{"GET", "/api/ports"},
+		{"GET", "/api/stats"},
+		{"POST", "/api/apps/test/start"},
+		{"POST", "/api/apps/test/stop"},
+		{"POST", "/api/apps/test/restart"},
+		{"DELETE", "/api/apps/test"},
+	}
+
+	for _, ep := range endpoints {
+		req, _ := http.NewRequest(ep.method, baseURL+ep.path, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", ep.method, ep.path, err)
+		}
+		if resp.StatusCode != 401 {
+			t.Errorf("%s %s: expected 401, got %d", ep.method, ep.path, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+
+	// Test with wrong token
+	req, _ := http.NewRequest("GET", baseURL+"/api/status", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	resp, _ := http.DefaultClient.Do(req)
+	if resp.StatusCode != 401 {
+		t.Errorf("wrong token: expected 401, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAPIInputValidation(t *testing.T) {
+	deps := ServerDeps{
+		GetApps:       func() []AppInfo { return nil },
+		GetAppDetail:  func(name string) *AppDetail { return nil },
+		GetLogs:       func(name string, lines int) []LogEntry { return nil },
+		GetErrors:     func(name string) []ErrorEntry { return nil },
+		GetPorts:      func() []PortMapping { return nil },
+		GetStats:      func() []AppStats { return nil },
+		ApprovalQueue: nil,
+		ExecuteAction: func(action, appName string, payload []byte) (string, error) {
+			return "done", nil
+		},
+	}
+
+	srv, err := NewServer(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://127.0.0.1:" + strings.Split(srv.listener.Addr().String(), ":")[1]
+	token := srv.Token()
+
+	// Test registering app with no name
+	req, _ := http.NewRequest("POST", baseURL+"/api/apps", strings.NewReader(`{"dir":"apps/test","command":"npm start"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := http.DefaultClient.Do(req)
+	if resp.StatusCode != 400 {
+		t.Errorf("register without name: expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Test registering app with invalid JSON
+	req2, _ := http.NewRequest("POST", baseURL+"/api/apps", strings.NewReader(`not json`))
+	req2.Header.Set("Authorization", "Bearer "+token)
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, _ := http.DefaultClient.Do(req2)
+	if resp2.StatusCode != 400 {
+		t.Errorf("register with invalid JSON: expected 400, got %d", resp2.StatusCode)
+	}
+	resp2.Body.Close()
+}
+
+func TestRateLimiting(t *testing.T) {
+	deps := ServerDeps{
+		GetApps:       func() []AppInfo { return []AppInfo{} },
+		GetAppDetail:  func(name string) *AppDetail { return nil },
+		GetLogs:       func(name string, lines int) []LogEntry { return nil },
+		GetErrors:     func(name string) []ErrorEntry { return nil },
+		GetPorts:      func() []PortMapping { return nil },
+		GetStats:      func() []AppStats { return nil },
+		ApprovalQueue: nil,
+		ExecuteAction: func(action, appName string, payload []byte) (string, error) { return "", nil },
+	}
+
+	srv, err := NewServer(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://127.0.0.1:" + strings.Split(srv.listener.Addr().String(), ":")[1]
+	token := srv.Token()
+
+	// Send 150 requests rapidly — some should be rate-limited
+	rateLimited := 0
+	for i := 0; i < 150; i++ {
+		req, _ := http.NewRequest("GET", baseURL+"/api/status", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		if resp.StatusCode == 429 {
+			rateLimited++
+		}
+		resp.Body.Close()
+	}
+
+	if rateLimited == 0 {
+		t.Error("expected some requests to be rate-limited after 150 rapid requests")
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Approval.TimeoutSeconds != 60 {

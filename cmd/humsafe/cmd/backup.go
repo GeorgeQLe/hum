@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -12,18 +13,28 @@ import (
 	"time"
 
 	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/crypto"
 	"github.com/spf13/cobra"
 )
 
+// backupMagic is prepended to encrypted backups to identify them.
+var backupMagic = []byte("HUMSAFE_ENC\x01")
+
 func BackupCmd() *cobra.Command {
 	var output string
+	var noEncrypt bool
 
 	cmd := &cobra.Command{
 		Use:   "backup",
-		Short: "Back up the vault to a compressed archive",
-		Long:  "Create a compressed, encrypted backup of the entire vault directory.",
+		Short: "Back up the vault to a compressed, encrypted archive",
+		Long: `Create a compressed, encrypted backup of the entire vault directory.
+
+By default the backup is encrypted with AES-256-GCM using a key derived from
+the vault password. Use --no-encrypt for an unencrypted archive (the vault.enc
+file inside is still encrypted, but config.json and audit.log will be plaintext).`,
 		Example: `  humsafe backup
-  humsafe backup -o my-backup.tar.gz`,
+  humsafe backup -o my-backup.tar.gz
+  humsafe backup --no-encrypt`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {
@@ -34,23 +45,20 @@ func BackupCmd() *cobra.Command {
 				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
+			ext := ".tar.gz.enc"
+			if noEncrypt {
+				ext = ".tar.gz"
+			}
 			if output == "" {
-				output = fmt.Sprintf("humsafe-backup-%s.tar.gz", time.Now().Format("20060102-150405"))
+				output = fmt.Sprintf("humsafe-backup-%s%s", time.Now().Format("20060102-150405"), ext)
 			}
 
 			vaultDir := vault.VaultPath(projectRoot)
 
-			f, err := os.OpenFile(output, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-			if err != nil {
-				return fmt.Errorf("creating backup file: %w", err)
-			}
-			defer f.Close()
-
-			gw := gzip.NewWriter(f)
-			defer gw.Close()
-
+			// Create tar.gz in memory buffer
+			var tarBuf bytes.Buffer
+			gw := gzip.NewWriter(&tarBuf)
 			tw := tar.NewWriter(gw)
-			defer tw.Close()
 
 			err = filepath.Walk(vaultDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
@@ -86,17 +94,63 @@ func BackupCmd() *cobra.Command {
 				return err
 			})
 			if err != nil {
-				// Clean up partial file on error
-				os.Remove(output)
 				return fmt.Errorf("creating backup: %w", err)
 			}
 
-			fmt.Printf("Vault backed up to %s\n", output)
+			if err := tw.Close(); err != nil {
+				return fmt.Errorf("finalizing tar: %w", err)
+			}
+			if err := gw.Close(); err != nil {
+				return fmt.Errorf("finalizing gzip: %w", err)
+			}
+
+			var outputData []byte
+			if noEncrypt {
+				outputData = tarBuf.Bytes()
+			} else {
+				// Prompt for password and derive encryption key
+				password, err := promptPassword("Enter vault password for backup encryption: ")
+				if err != nil {
+					return err
+				}
+
+				salt, err := crypto.GenerateSalt()
+				if err != nil {
+					return fmt.Errorf("generating salt: %w", err)
+				}
+
+				key, err := crypto.DeriveKey(password, salt)
+				if err != nil {
+					return fmt.Errorf("deriving key: %w", err)
+				}
+
+				encrypted, err := crypto.Encrypt(key, tarBuf.Bytes())
+				if err != nil {
+					return fmt.Errorf("encrypting backup: %w", err)
+				}
+
+				// Format: magic + salt + encrypted(tar.gz)
+				outputData = make([]byte, 0, len(backupMagic)+len(salt)+len(encrypted))
+				outputData = append(outputData, backupMagic...)
+				outputData = append(outputData, salt...)
+				outputData = append(outputData, encrypted...)
+			}
+
+			if err := os.WriteFile(output, outputData, 0600); err != nil {
+				return fmt.Errorf("writing backup file: %w", err)
+			}
+
+			if noEncrypt {
+				fmt.Printf("Vault backed up to %s (unencrypted)\n", output)
+			} else {
+				fmt.Printf("Vault backed up to %s (encrypted)\n", output)
+			}
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default: humsafe-backup-<timestamp>.tar.gz)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default: humsafe-backup-<timestamp>.tar.gz.enc)")
+	cmd.Flags().BoolVar(&noEncrypt, "no-encrypt", false, "Create unencrypted backup (tar.gz only)")
 
 	return cmd
 }
@@ -107,7 +161,10 @@ func RestoreCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore <archive>",
 		Short: "Restore a vault from a backup archive",
-		Args:  cobra.ExactArgs(1),
+		Long: `Restore a vault from a backup archive. Supports both encrypted (.tar.gz.enc)
+and unencrypted (.tar.gz) archives. Encrypted archives will prompt for the
+password used during backup.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			archive := args[0]
 
@@ -128,13 +185,41 @@ func RestoreCmd() *cobra.Command {
 				}
 			}
 
-			f, err := os.Open(archive)
+			rawData, err := os.ReadFile(archive)
 			if err != nil {
-				return fmt.Errorf("opening archive: %w", err)
+				return fmt.Errorf("reading archive: %w", err)
 			}
-			defer f.Close()
 
-			gr, err := gzip.NewReader(f)
+			var tarGzData []byte
+			if bytes.HasPrefix(rawData, backupMagic) {
+				// Encrypted backup: magic + salt(16) + encrypted data
+				data := rawData[len(backupMagic):]
+				if len(data) < crypto.SaltLen {
+					return fmt.Errorf("encrypted backup is too short")
+				}
+				salt := data[:crypto.SaltLen]
+				ciphertext := data[crypto.SaltLen:]
+
+				password, err := promptPassword("Enter backup password: ")
+				if err != nil {
+					return err
+				}
+
+				key, err := crypto.DeriveKey(password, salt)
+				if err != nil {
+					return fmt.Errorf("deriving key: %w", err)
+				}
+
+				tarGzData, err = crypto.Decrypt(key, ciphertext)
+				if err != nil {
+					return fmt.Errorf("decryption failed (wrong password or corrupted backup)")
+				}
+			} else {
+				// Unencrypted backup
+				tarGzData = rawData
+			}
+
+			gr, err := gzip.NewReader(bytes.NewReader(tarGzData))
 			if err != nil {
 				return fmt.Errorf("reading archive: %w", err)
 			}
