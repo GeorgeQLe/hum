@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/georgele/devctl/internal/vault/crypto"
+	"github.com/georgele/hum/internal/vault/crypto"
 )
 
 // atomicWriteFile writes data to a file atomically by writing to a temp file
@@ -27,7 +27,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 }
 
 const (
-	VaultDir    = ".envsafe"
+	VaultDir    = ".humsafe"
 	VaultFile   = "vault.enc"
 	ConfigFile  = "config.json"
 	AuditFile   = "audit.log"
@@ -72,7 +72,7 @@ type Vault struct {
 	mu       sync.RWMutex
 }
 
-// VaultPath returns the path to the .envsafe directory.
+// VaultPath returns the path to the .humsafe directory.
 func VaultPath(projectRoot string) string {
 	return filepath.Join(projectRoot, VaultDir)
 }

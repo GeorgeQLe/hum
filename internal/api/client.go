@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-// Client is an HTTP client for the devctl API.
+// Client is an HTTP client for the humrun API.
 type Client struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
 }
 
-// NewClientFromDiscovery creates a client by reading ~/.devctl/api.json.
+// NewClientFromDiscovery creates a client by reading ~/.humrun/api.json.
 func NewClientFromDiscovery() (*Client, error) {
 	info, err := ReadDiscovery()
 	if err != nil {
-		return nil, fmt.Errorf("devctl API not available: %w", err)
+		return nil, fmt.Errorf("humrun API not available: %w", err)
 	}
 	return &Client{
 		BaseURL: fmt.Sprintf("http://127.0.0.1:%d", info.Port),
@@ -48,7 +48,7 @@ func (c *Client) do(method, path string, body interface{}) ([]byte, int, error) 
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Client-Name", "devctl-cli")
+	req.Header.Set("X-Client-Name", "humrun-cli")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

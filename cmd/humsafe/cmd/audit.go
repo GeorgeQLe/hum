@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/georgele/devctl/internal/vault"
-	"github.com/georgele/devctl/internal/vault/audit"
+	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/audit"
 	"github.com/spf13/cobra"
 )
 
@@ -22,9 +22,9 @@ func AuditCmd() *cobra.Command {
 		Short: "View audit log",
 		Long: `View the audit log showing who accessed or modified secrets and when.
 Supports filtering by user, action, environment, and date.`,
-		Example: `  envsafe audit
-  envsafe audit --action set --since 2024-01-01
-  envsafe audit --format json`,
+		Example: `  humsafe audit
+  humsafe audit --action set --since 2024-01-01
+  humsafe audit --format json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
@@ -33,7 +33,7 @@ Supports filtering by user, action, environment, and date.`,
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			logger := audit.NewLogger(vault.VaultPath(projectRoot))

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/georgele/devctl/internal/config"
+	"github.com/georgele/hum/internal/config"
 )
 
 func waitEvent(ch <-chan FileWatchEvent, timeout time.Duration) *FileWatchEvent {

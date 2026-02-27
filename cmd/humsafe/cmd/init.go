@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/vault"
-	"github.com/georgele/devctl/internal/vault/keychain"
+	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/keychain"
 )
 
 func InitCmd() *cobra.Command {
@@ -19,9 +19,9 @@ func InitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a new encrypted vault",
-		Long: "Creates a .envsafe/ directory with an encrypted vault for storing secrets.",
-		Example: `  envsafe init --name myproject
-  envsafe init --import`,
+		Long: "Creates a .humsafe/ directory with an encrypted vault for storing secrets.",
+		Example: `  humsafe init --name myproject
+  humsafe init --import`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {
@@ -51,7 +51,7 @@ func InitCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Warning: could not cache password in keychain: %v\n", err)
 			}
 
-			fmt.Printf("Vault initialized in %s/.envsafe/\n", projectRoot)
+			fmt.Printf("Vault initialized in %s/.humsafe/\n", projectRoot)
 			fmt.Printf("Project: %s\n", projectName)
 
 			// Auto-import from apps.json if requested
@@ -63,7 +63,7 @@ func InitCmd() *cobra.Command {
 				// Check if apps.json has env vars and suggest import
 				if hasPlaintextEnv(projectRoot) {
 					fmt.Println("\nDetected plain-text env vars in apps.json.")
-					fmt.Println("Run 'envsafe init --import' to import them into the vault.")
+					fmt.Println("Run 'humsafe init --import' to import them into the vault.")
 				}
 			}
 

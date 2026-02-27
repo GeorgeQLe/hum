@@ -1,21 +1,21 @@
-.PHONY: build build-envsafe build-web run dev test test-e2e lint clean install install-skill
+.PHONY: build build-humsafe build-web run dev test test-e2e lint clean install install-skill
 
 build:
-	go build -o devctl .
+	go build -o humrun .
 
 build-web:
 	cd web && npm install && npm run build
 	mkdir -p internal/server/web_dist
 	cp -r web/dist/* internal/server/web_dist/
 
-build-envsafe: build-web
-	go build -o envsafe ./cmd/envsafe
+build-humsafe: build-web
+	go build -o humsafe ./cmd/humsafe
 
 run: build
-	./devctl
+	./humrun
 
 dev: build
-	./devctl dev
+	./humrun dev
 
 test:
 	go test -race ./...
@@ -27,7 +27,7 @@ lint:
 	golangci-lint run ./...
 
 clean:
-	rm -f devctl envsafe
+	rm -f humrun humsafe
 
 install:
 	bash install.sh

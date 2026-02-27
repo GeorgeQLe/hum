@@ -32,16 +32,16 @@ linters-settings:
       - (*os/exec.Cmd).Wait
       - crypto/rand.Read
       # Process manager: fire-and-forget by design in TUI/IPC contexts
-      - (*github.com/georgele/devctl/internal/process.Manager).Start
-      - (*github.com/georgele/devctl/internal/process.Manager).Stop
-      - (*github.com/georgele/devctl/internal/process.Manager).Restart
-      - github.com/georgele/devctl/internal/process.SendNotification
-      - github.com/georgele/devctl/internal/process.KillExternalProcess
-      - github.com/georgele/devctl/internal/api.WritePIDFile
-      - github.com/georgele/devctl/internal/state.SaveSession
+      - (*github.com/georgele/hum/internal/process.Manager).Start
+      - (*github.com/georgele/hum/internal/process.Manager).Stop
+      - (*github.com/georgele/hum/internal/process.Manager).Restart
+      - github.com/georgele/hum/internal/process.SendNotification
+      - github.com/georgele/hum/internal/process.KillExternalProcess
+      - github.com/georgele/hum/internal/api.WritePIDFile
+      - github.com/georgele/hum/internal/state.SaveSession
       # Best-effort cleanup/shutdown
       - (*net/http.Server).Shutdown
-      - (*github.com/georgele/devctl/internal/ipc.Client).BuildError
+      - (*github.com/georgele/hum/internal/ipc.Client).BuildError
   govet:
     disable:
       - shadow
@@ -74,7 +74,7 @@ issues:
     - path: internal/process/manager\.go
       linters:
         - nilerr
-    - path: cmd/envsafe/
+    - path: cmd/humsafe/
       linters:
         - nilerr
     # Intentional recover() without checking return value

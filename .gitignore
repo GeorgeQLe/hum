@@ -1,15 +1,15 @@
 # Binary
-/devctl
-devctl.exe
-/envsafe
-envsafe.exe
+/humrun
+humrun.exe
+/humsafe
+humsafe.exe
 
 # Go
 *.test
 *.out
 
 # State
-.devctl-state.json
+.humrun-state.json
 
 # IDE
 .idea/

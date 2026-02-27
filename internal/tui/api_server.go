@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/process"
 )
 
 // startAPIServer creates and starts the HTTP API server, wiring it to the model's data.

@@ -19,7 +19,7 @@ func LoginCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate with envsafe server [EXPERIMENTAL — server not yet functional]",
+		Short: "Authenticate with humsafe server [EXPERIMENTAL — server not yet functional]",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			warnIfInsecureHTTP(serverURL)
@@ -73,7 +73,7 @@ func LoginCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("finding config directory: %w", err)
 			}
-			tokenDir := filepath.Join(configDir, "envsafe")
+			tokenDir := filepath.Join(configDir, "humsafe")
 			if err := os.MkdirAll(tokenDir, 0700); err != nil {
 				return fmt.Errorf("creating config directory: %w", err)
 			}

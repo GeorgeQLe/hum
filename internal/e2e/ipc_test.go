@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/georgele/devctl/internal/ipc"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/ipc"
+	"github.com/georgele/hum/internal/process"
 )
 
 // ipcTestEnv holds the components for IPC integration tests.

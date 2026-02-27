@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/process"
 )
 
 func newScanCmd() *cobra.Command {
@@ -21,9 +21,9 @@ func newScanCmd() *cobra.Command {
 		Short: "Auto-detect apps in project tree",
 		Long: `Auto-detect apps in the project tree by looking for common frameworks and tools.
 Detected apps can be written to apps.json with --write.`,
-		Example: `  devctl scan
-  devctl scan --write
-  devctl scan --json`,
+		Example: `  humrun scan
+  humrun scan --write
+  humrun scan --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runScan(scanJSON, scanWrite)

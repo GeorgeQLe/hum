@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/georgele/devctl/internal/vault"
+	"github.com/georgele/hum/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +22,7 @@ func ListCmd() *cobra.Command {
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			v, err := openAndUnlock(projectRoot)

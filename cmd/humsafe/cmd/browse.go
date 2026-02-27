@@ -6,10 +6,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/vault"
-	"github.com/georgele/devctl/internal/vault/audit"
+	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/audit"
 
-	envsafetui "github.com/georgele/devctl/internal/envsafe-tui"
+	humsafetui "github.com/georgele/hum/internal/humsafe-tui"
 )
 
 func BrowseCmd() *cobra.Command {
@@ -24,7 +24,7 @@ func BrowseCmd() *cobra.Command {
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			v, err := openAndUnlock(projectRoot)
@@ -34,7 +34,7 @@ func BrowseCmd() *cobra.Command {
 			defer v.Lock()
 
 			logger := audit.NewLogger(vault.VaultPath(projectRoot))
-			model := envsafetui.New(v, logger)
+			model := humsafetui.New(v, logger)
 
 			p := tea.NewProgram(model, tea.WithAltScreen())
 			if _, err := p.Run(); err != nil {

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/georgele/devctl/internal/vault/keychain"
+	"github.com/georgele/hum/internal/vault/keychain"
 )
 
 // ResolveEnv returns the final environment map for an app.
@@ -22,12 +22,12 @@ func ResolveEnv(projectRoot string, plainEnv map[string]string, vaultEnv string)
 		}
 
 		// Try to unlock using cached password from env var or keychain
-		password := os.Getenv("ENVSAFE_PASSWORD")
+		password := os.Getenv("HUMSAFE_PASSWORD")
 		if password == "" {
 			password, _ = keychain.Retrieve(filepath.Base(projectRoot))
 		}
 		if password == "" {
-			return nil, fmt.Errorf("vault is locked. Run 'envsafe unlock' or set ENVSAFE_PASSWORD")
+			return nil, fmt.Errorf("vault is locked. Run 'humsafe unlock' or set HUMSAFE_PASSWORD")
 		}
 
 		if err := v.Unlock(password); err != nil {

@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/dev"
+	"github.com/georgele/hum/internal/dev"
 )
 
 func newDevCmd() *cobra.Command {

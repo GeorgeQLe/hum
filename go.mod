@@ -1,4 +1,4 @@
-module github.com/georgele/devctl
+module github.com/georgele/hum
 
 go 1.24.0
 

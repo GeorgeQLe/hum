@@ -8,14 +8,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/process"
 )
 
 // testModel creates a minimal Model for testing with the given apps.
 func testModel(apps ...config.App) Model {
 	pm := process.NewManager(os.TempDir())
-	pm.GetLogBuffer("devctl")
+	pm.GetLogBuffer("humrun")
 	return Model{
 		apps:        apps,
 		projectRoot: os.TempDir(),
@@ -29,7 +29,7 @@ func testModel(apps ...config.App) Model {
 
 // allSystemLogs returns all log lines joined by newline.
 func allSystemLogs(m *Model) string {
-	buf := m.procManager.GetLogBuffer("devctl")
+	buf := m.procManager.GetLogBuffer("humrun")
 	lines, _, _ := buf.Snapshot()
 	var texts []string
 	for _, l := range lines {
@@ -432,7 +432,7 @@ func TestDispatchCommand(t *testing.T) {
 		{"stop no args", "stop", "", "Usage: stop"},
 		{"restart no args", "restart", "", "Usage: restart"},
 		{"unknown command", "foobar", "", "Unknown command: foobar"},
-		{"help", "help", "", "devctl — Multi-App"},
+		{"help", "help", "", "humrun — Multi-App"},
 		{"list no apps", "list", "", "No apps configured"},
 		{"status no apps", "status", "", "No apps configured"},
 		{"remove no args", "remove", "", "Usage: remove"},

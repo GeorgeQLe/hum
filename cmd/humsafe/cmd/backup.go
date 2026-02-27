@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/georgele/devctl/internal/vault"
+	"github.com/georgele/hum/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -22,8 +22,8 @@ func BackupCmd() *cobra.Command {
 		Use:   "backup",
 		Short: "Back up the vault to a compressed archive",
 		Long:  "Create a compressed, encrypted backup of the entire vault directory.",
-		Example: `  envsafe backup
-  envsafe backup -o my-backup.tar.gz`,
+		Example: `  humsafe backup
+  humsafe backup -o my-backup.tar.gz`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
 			if err != nil {
@@ -31,11 +31,11 @@ func BackupCmd() *cobra.Command {
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			if output == "" {
-				output = fmt.Sprintf("envsafe-backup-%s.tar.gz", time.Now().Format("20060102-150405"))
+				output = fmt.Sprintf("humsafe-backup-%s.tar.gz", time.Now().Format("20060102-150405"))
 			}
 
 			vaultDir := vault.VaultPath(projectRoot)
@@ -96,7 +96,7 @@ func BackupCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default: envsafe-backup-<timestamp>.tar.gz)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default: humsafe-backup-<timestamp>.tar.gz)")
 
 	return cmd
 }

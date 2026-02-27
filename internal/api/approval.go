@@ -23,14 +23,14 @@ type ApprovalConfig struct {
 	Rules          map[string]ApprovalRule `json:"rules"`
 }
 
-// DevctlConfig represents ~/.devctl/config.json.
-type DevctlConfig struct {
+// HumrunConfig represents ~/.humrun/config.json.
+type HumrunConfig struct {
 	Approval ApprovalConfig `json:"approval"`
 }
 
 // DefaultConfig returns the default approval configuration.
-func DefaultConfig() DevctlConfig {
-	return DevctlConfig{
+func DefaultConfig() HumrunConfig {
+	return HumrunConfig{
 		Approval: ApprovalConfig{
 			TimeoutSeconds: 60,
 			Rules: map[string]ApprovalRule{
@@ -45,14 +45,14 @@ func DefaultConfig() DevctlConfig {
 	}
 }
 
-// LoadDevctlConfig loads ~/.devctl/config.json, creating it with defaults if missing.
-func LoadDevctlConfig() DevctlConfig {
+// LoadHumrunConfig loads ~/.humrun/config.json, creating it with defaults if missing.
+func LoadHumrunConfig() HumrunConfig {
 	path := filepath.Join(GlobalDir(), "config.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return DefaultConfig()
 	}
-	var cfg DevctlConfig
+	var cfg HumrunConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return DefaultConfig()
 	}
@@ -72,8 +72,8 @@ func LoadDevctlConfig() DevctlConfig {
 	return cfg
 }
 
-// SaveDevctlConfig writes the config to ~/.devctl/config.json.
-func SaveDevctlConfig(cfg DevctlConfig) error {
+// SaveHumrunConfig writes the config to ~/.humrun/config.json.
+func SaveHumrunConfig(cfg HumrunConfig) error {
 	dir := GlobalDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err

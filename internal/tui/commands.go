@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/process"
 )
 
 func (m *Model) showStatus(args string) {
@@ -338,7 +338,7 @@ func (m *Model) expandGroupTarget(target string) []string {
 }
 
 func (m *Model) showHelp() {
-	m.systemLog("devctl — Multi-App Dev Server Manager")
+	m.systemLog("humrun — Multi-App Dev Server Manager")
 	m.systemLog("")
 	m.systemLog("  start <name|all>        Start an app (or all)")
 	m.systemLog("  stop <name|all>         Stop an app (or all)")
@@ -365,13 +365,13 @@ func (m *Model) showHelp() {
 	m.systemLog("  --restore      Restore previous session")
 	m.systemLog("")
 	m.systemLog("Remote commands (from another terminal):")
-	m.systemLog("  devctl add <dir>           Add app from directory")
-	m.systemLog("  devctl add <dir> --start   Add and start immediately")
-	m.systemLog("  devctl status              Show running instance status")
-	m.systemLog("  devctl stats               Show resource statistics")
-	m.systemLog("  devctl stats --watch       Live resource monitoring")
-	m.systemLog("  devctl stats --json        JSON output for scripting")
-	m.systemLog("  devctl ping                Check if devctl is running")
+	m.systemLog("  humrun add <dir>           Add app from directory")
+	m.systemLog("  humrun add <dir> --start   Add and start immediately")
+	m.systemLog("  humrun status              Show running instance status")
+	m.systemLog("  humrun stats               Show resource statistics")
+	m.systemLog("  humrun stats --watch       Live resource monitoring")
+	m.systemLog("  humrun stats --json        JSON output for scripting")
+	m.systemLog("  humrun ping                Check if humrun is running")
 	m.systemLog("")
 	m.systemLog("Tab: toggle sidebar/command  up/down/j/k: navigate  PgUp/PgDn: scroll")
 	m.systemLog("Ctrl+J/K: scroll line  Ctrl+B: toggle sidebar")
@@ -498,15 +498,15 @@ func (m *Model) handlePortConflict(msg portConflictMsg) {
 		return
 	}
 
-	devctlApp := m.procManager.FindDevctlOwner(conflict.owner.PID)
-	if devctlApp != "" {
-		m.askQuestion(fmt.Sprintf("Port %d used by %s. [r]estart/[a]lt port/[s]tart anyway/[c]ancel: ", conflict.port, devctlApp), func(answer string) {
+	humrunApp := m.procManager.FindHumrunOwner(conflict.owner.PID)
+	if humrunApp != "" {
+		m.askQuestion(fmt.Sprintf("Port %d used by %s. [r]estart/[a]lt port/[s]tart anyway/[c]ancel: ", conflict.port, humrunApp), func(answer string) {
 			switch strings.ToLower(answer) {
 			case "r":
 				// Look up the conflicting app's command/dir
-				conflictApp := m.findApp(devctlApp)
+				conflictApp := m.findApp(humrunApp)
 				if conflictApp != nil {
-					m.procManager.Restart(devctlApp, conflictApp.Command, conflictApp.Dir, m.appEnv(conflictApp.Env, conflictApp.VaultEnv))
+					m.procManager.Restart(humrunApp, conflictApp.Command, conflictApp.Dir, m.appEnv(conflictApp.Env, conflictApp.VaultEnv))
 				}
 				if !process.WaitForPortFree(conflict.port, 2*time.Second) {
 					m.systemLog(fmt.Sprintf("Port %d still in use after restart — start aborted.", conflict.port))
@@ -714,9 +714,9 @@ func (m *Model) showPortResults(results []portCheckResult) {
 		}
 		ownerStr := ""
 		if !r.free && r.owner != nil {
-			devctlApp := m.procManager.FindDevctlOwner(r.owner.PID)
-			if devctlApp != "" {
-				ownerStr = "devctl:" + devctlApp
+			humrunApp := m.procManager.FindHumrunOwner(r.owner.PID)
+			if humrunApp != "" {
+				ownerStr = "humrun:" + humrunApp
 			} else {
 				ownerStr = fmt.Sprintf("%s (PID %d)", r.owner.Command, r.owner.PID)
 			}

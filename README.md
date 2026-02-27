@@ -1,4 +1,4 @@
-# devctl
+# humrun
 
 A terminal UI for managing multiple local dev servers from a single pane.
 
@@ -6,7 +6,7 @@ A terminal UI for managing multiple local dev servers from a single pane.
 
 ## Overview
 
-devctl reads app definitions from `apps.json` at the project root and presents a split-screen TUI: a sidebar listing all registered apps with live status indicators, and a scrollable log pane showing output from the selected process. A command line at the bottom accepts commands to control apps.
+humrun reads app definitions from `apps.json` at the project root and presents a split-screen TUI: a sidebar listing all registered apps with live status indicators, and a scrollable log pane showing output from the selected process. A command line at the bottom accepts commands to control apps.
 
 ## Installation
 
@@ -16,66 +16,66 @@ devctl reads app definitions from `apps.json` at the project root and presents a
 bash install.sh
 ```
 
-This builds the binary with `go build` and installs it to `~/.local/bin/devctl`. Your shell PATH is updated automatically.
+This builds the binary with `go build` and installs it to `~/.local/bin/humrun`. Your shell PATH is updated automatically.
 
 ### Manual build
 
 ```sh
 make build
-cp devctl ~/.local/bin/   # or anywhere on your PATH
+cp humrun ~/.local/bin/   # or anywhere on your PATH
 ```
 
 ### From source
 
 ```sh
-go build -o devctl .
-./devctl
+go build -o humrun .
+./humrun
 ```
 
-**Uninstall:** `rm ~/.local/bin/devctl`
+**Uninstall:** `rm ~/.local/bin/humrun`
 
 ## Claude Code Integration
 
-To install devctl as a Claude Code skill:
+To install humrun as a Claude Code skill:
 
 ```sh
 bash install-skill.sh
 ```
 
-This creates a skill at `~/.claude/skills/devctl/SKILL.md`. Use `--agents-md` to also generate an `AGENTS.md` file in the current directory.
+This creates a skill at `~/.claude/skills/humrun/SKILL.md`. Use `--agents-md` to also generate an `AGENTS.md` file in the current directory.
 
 ## Usage
 
 ```sh
-devctl              # launch the TUI
-devctl --start-all  # launch and start all apps immediately
-devctl --restore    # restore previous session (restart apps that were running when you last quit)
+humrun              # launch the TUI
+humrun --start-all  # launch and start all apps immediately
+humrun --restore    # restore previous session (restart apps that were running when you last quit)
 ```
 
 Recommended: a TTY terminal with at least 40 columns and 12 rows for best display.
 
 ## CLI Subcommands
 
-These commands communicate with a running TUI instance via IPC (Unix socket), so you can control devctl from another terminal:
+These commands communicate with a running TUI instance via IPC (Unix socket), so you can control humrun from another terminal:
 
 ```sh
-devctl ping                          # check if a TUI instance is running
-devctl status                        # show app names, statuses, PIDs, and ports
-devctl start <name|all>              # start an app (auto-resolves port conflicts)
-devctl stop <name|all>               # stop an app
-devctl restart <name|all>            # restart an app
-devctl add <dir>                     # add an app from a directory
-devctl add <dir> --name my-app       # override detected name
-devctl add <dir> --command "npm dev" # override detected command
-devctl add <dir> --ports 3000,3001   # specify ports
-devctl add <dir> --start             # start the app immediately after adding
-devctl scan                          # auto-detect apps in project tree
-devctl scan --write                  # add detected apps to apps.json
-devctl scan --json                   # output detected apps as JSON
-devctl stats                         # show CPU, memory, peak, and uptime for all apps
-devctl stats --watch                 # live refresh every 2 seconds
-devctl stats --json                  # JSON output for scripting
-devctl dev                           # development mode with auto-rebuild on source changes
+humrun ping                          # check if a TUI instance is running
+humrun status                        # show app names, statuses, PIDs, and ports
+humrun start <name|all>              # start an app (auto-resolves port conflicts)
+humrun stop <name|all>               # stop an app
+humrun restart <name|all>            # restart an app
+humrun add <dir>                     # add an app from a directory
+humrun add <dir> --name my-app       # override detected name
+humrun add <dir> --command "npm dev" # override detected command
+humrun add <dir> --ports 3000,3001   # specify ports
+humrun add <dir> --start             # start the app immediately after adding
+humrun scan                          # auto-detect apps in project tree
+humrun scan --write                  # add detected apps to apps.json
+humrun scan --json                   # output detected apps as JSON
+humrun stats                         # show CPU, memory, peak, and uptime for all apps
+humrun stats --watch                 # live refresh every 2 seconds
+humrun stats --json                  # JSON output for scripting
+humrun dev                           # development mode with auto-rebuild on source changes
 ```
 
 ## TUI Commands
@@ -111,7 +111,7 @@ Commands accept `@group` targets (e.g., `start @frontend`, `stop @backend`).
 
 | Key              | Action                        |
 | ---------------- | ----------------------------- |
-| `Ctrl+C`         | Quit devctl                   |
+| `Ctrl+C`         | Quit humrun                   |
 | `Ctrl+B`         | Toggle sidebar visibility     |
 | `PgUp/PgDn`      | Scroll log output (page)     |
 | `Ctrl+J/K`       | Scroll log output (line)     |
@@ -253,7 +253,7 @@ Apps are stored in `apps.json` at the project root. Each entry has:
 | **command** | Shell command to run (required) |
 | **ports** | Array of ports the app listens on (required) |
 | **project** | Optional project grouping label |
-| **autoStart** | Auto-start the app when devctl launches (default: false) |
+| **autoStart** | Auto-start the app when humrun launches (default: false) |
 | **autoRestart** | Restart on crash (default: false) |
 | **restartDelay** | Milliseconds before restart (default: 3000) |
 | **maxRestarts** | Max restart attempts before giving up (default: 5) |
@@ -281,7 +281,7 @@ restart @workers
 
 ### Dependencies
 
-Declare `"dependsOn"` to control startup order. Dependencies are resolved via topological sort — devctl starts dependencies first and detects cycles:
+Declare `"dependsOn"` to control startup order. Dependencies are resolved via topological sort — humrun starts dependencies first and detects cycles:
 
 ```json
 {
@@ -313,10 +313,10 @@ Configure an HTTP health check to monitor whether an app is actually serving:
 
 ## Resource Monitoring
 
-devctl tracks CPU and memory usage for all running processes (polled every 2 seconds via `ps`).
+humrun tracks CPU and memory usage for all running processes (polled every 2 seconds via `ps`).
 
 - **`top` command** — opens a live dashboard with sortable columns (CPU, memory, name, uptime). Sort with `c`/`m`/`n`/`u`, reverse with `r`, exit with `q`.
-- **`devctl stats`** — view resource statistics from another terminal. Use `--watch` for live updates or `--json` for scripting.
+- **`humrun stats`** — view resource statistics from another terminal. Use `--watch` for live updates or `--json` for scripting.
 - **Threshold alerts** — configure `resourceLimits` per app to get notified when CPU or memory exceeds a threshold. A red triangle appears in the sidebar, and desktop notifications are sent if `notifications` is enabled.
 
 ```json
@@ -335,7 +335,7 @@ Press `f` from the command line to enter filter mode. Type a regex pattern to sh
 
 ## Error Detection
 
-devctl scans process output for common error patterns (`ERROR`, `Failed`, `Exception`, `TypeError`, `FATAL`, stack traces, etc.) and:
+humrun scans process output for common error patterns (`ERROR`, `Failed`, `Exception`, `TypeError`, `FATAL`, stack traces, etc.) and:
 
 - Shows an error count with a red `!` indicator in the sidebar
 - Displays a notification banner when errors are detected
@@ -344,26 +344,26 @@ devctl scans process output for common error patterns (`ERROR`, `Failed`, `Excep
 
 ## Session Restore
 
-When devctl quits, it saves the list of running apps to `.devctl-state.json`. On next launch with `--restore`, it restarts those apps in dependency order:
+When humrun quits, it saves the list of running apps to `.humrun-state.json`. On next launch with `--restore`, it restarts those apps in dependency order:
 
 ```sh
-devctl --restore
+humrun --restore
 ```
 
 Apps that are no longer in `apps.json` or have port conflicts are skipped with a warning.
 
 ## IPC
 
-devctl exposes a Unix socket so external tools and terminals can interact with a running instance:
+humrun exposes a Unix socket so external tools and terminals can interact with a running instance:
 
 ```sh
-devctl ping       # health check — is devctl running?
-devctl status     # list all apps with status, PID, ports
-devctl add ./app  # add an app to the running instance
-devctl stats      # resource usage snapshot
+humrun ping       # health check — is humrun running?
+humrun status     # list all apps with status, PID, ports
+humrun add ./app  # add an app to the running instance
+humrun stats      # resource usage snapshot
 ```
 
-The socket is created at `$TMPDIR/devctl-sockets/devctl-<hash>.sock` (scoped to the project root). Stale sockets are cleaned up automatically.
+The socket is created at `$TMPDIR/humrun-sockets/humrun-<hash>.sock` (scoped to the project root). Stale sockets are cleaned up automatically.
 
 ## Status Indicators
 
@@ -393,9 +393,9 @@ Each candidate is presented interactively for confirmation before being added.
 
 ## Port Conflict Handling
 
-When starting an app, devctl checks if the required ports are available. If a port is in use, you get interactive resolution options:
+When starting an app, humrun checks if the required ports are available. If a port is in use, you get interactive resolution options:
 
-**If the port is used by another devctl app:**
+**If the port is used by another humrun app:**
 - `[r]` Restart the blocking app, then start this one
 - `[a]` Use an alternative free port (if available)
 - `[s]` Start anyway (may fail)
@@ -411,14 +411,14 @@ The `ports` command shows current port status and identifies which process owns 
 
 ## System Logs
 
-The first entry in the sidebar (labeled "devctl") shows the system log. This captures:
+The first entry in the sidebar (labeled "humrun") shows the system log. This captures:
 
 - App start/stop events
 - Status summaries from `start all`
 - Command output and errors
 - Scan results
 
-Select it to view devctl's internal activity separate from app logs.
+Select it to view humrun's internal activity separate from app logs.
 
 ## Auto-Restart
 
@@ -466,13 +466,13 @@ Use `watch` in the TUI to view status or toggle at runtime:
 
 ## Config Reload
 
-The `reload` command re-reads `apps.json` without restarting devctl:
+The `reload` command re-reads `apps.json` without restarting humrun:
 
 - **Added apps** appear in the sidebar immediately
 - **Removed apps** prompt to stop if running, then are removed
 - **Changed apps** prompt to restart with the new config
 
-devctl also watches `apps.json` for external changes and reloads automatically.
+humrun also watches `apps.json` for external changes and reloads automatically.
 
 ## Log Search
 
@@ -502,30 +502,30 @@ The e2e suite lives in `internal/e2e/` behind a `//go:build e2e` tag so it never
 - Crashed processes are indicated with a red status dot
 - Environment: inherits parent env plus per-app `env` vars
 
-## envsafe — Encrypted Secrets Manager
+## humsafe — Encrypted Secrets Manager
 
-envsafe is a local-first encrypted environment variable manager that integrates with devctl. Secrets are encrypted with AES-256-GCM using an Argon2id-derived key and stored in a `.envsafe/` directory.
+humsafe is a local-first encrypted environment variable manager that integrates with humrun. Secrets are encrypted with AES-256-GCM using an Argon2id-derived key and stored in a `.humsafe/` directory.
 
 ### Quick Start
 
 ```sh
 # Initialize a vault in your project
-envsafe init
+humsafe init
 
 # Store a secret
-envsafe set API_KEY sk-secret-value
+humsafe set API_KEY sk-secret-value
 
 # Retrieve it
-envsafe get API_KEY
+humsafe get API_KEY
 
 # List all keys (values hidden)
-envsafe list
+humsafe list
 
 # Export as KEY=VALUE pairs
-envsafe env
+humsafe env
 ```
 
-### devctl Integration
+### humrun Integration
 
 Add `vault_env` to your app config in `apps.json` to auto-inject secrets at startup:
 
@@ -539,16 +539,16 @@ Add `vault_env` to your app config in `apps.json` to auto-inject secrets at star
 }
 ```
 
-devctl will unlock the vault (using the OS keychain or `ENVSAFE_PASSWORD` env var) and merge secrets into the process environment. Plain-text `env` values take precedence over vault values.
+humrun will unlock the vault (using the OS keychain or `HUMSAFE_PASSWORD` env var) and merge secrets into the process environment. Plain-text `env` values take precedence over vault values.
 
 ### Multi-Environment Support
 
 Secrets are organized by environment:
 
 ```sh
-envsafe set -e production DATABASE_URL "postgres://..."
-envsafe set -e staging DATABASE_URL "postgres://staging..."
-envsafe list -e production
+humsafe set -e production DATABASE_URL "postgres://..."
+humsafe set -e staging DATABASE_URL "postgres://staging..."
+humsafe list -e production
 ```
 
 ### Secret Rotation
@@ -556,7 +556,7 @@ envsafe list -e production
 Rotate a secret while preserving its history:
 
 ```sh
-envsafe rotate API_KEY sk-new-value
+humsafe rotate API_KEY sk-new-value
 ```
 
 Previous values are stored in an audit trail within the vault.
@@ -566,9 +566,9 @@ Previous values are stored in an audit trail within the vault.
 Share secrets with teammates using X25519 envelope encryption:
 
 ```sh
-envsafe user add alice@example.com    # generates a key pair
-envsafe user list                     # show team members
-envsafe user role alice@example.com admin
+humsafe user add alice@example.com    # generates a key pair
+humsafe user list                     # show team members
+humsafe user role alice@example.com admin
 ```
 
 ### Password Management
@@ -576,37 +576,37 @@ envsafe user role alice@example.com admin
 Vault passwords must be at least 8 characters.
 
 ```sh
-envsafe passwd       # change the vault master password
-envsafe unlock       # unlock and cache password in OS keychain
-envsafe lock         # lock the vault and clear cached password
+humsafe passwd       # change the vault master password
+humsafe unlock       # unlock and cache password in OS keychain
+humsafe lock         # lock the vault and clear cached password
 ```
 
 ### Backup & Restore
 
 ```sh
-envsafe backup                          # creates envsafe-backup-<timestamp>.tar.gz
-envsafe backup -o my-backup.tar.gz      # custom output path
-envsafe restore my-backup.tar.gz        # restore from archive
+humsafe backup                          # creates humsafe-backup-<timestamp>.tar.gz
+humsafe backup -o my-backup.tar.gz      # custom output path
+humsafe restore my-backup.tar.gz        # restore from archive
 ```
 
 ### Audit Log
 
-envsafe maintains an append-only audit log of all vault operations:
+humsafe maintains an append-only audit log of all vault operations:
 
 ```sh
-envsafe audit                           # view all audit entries
-envsafe audit --action set              # filter by action (set, get, delete, rotate)
-envsafe audit --user alice@example.com  # filter by user
-envsafe audit --env production          # filter by environment
-envsafe audit --since 2024-01-01        # filter entries after date (YYYY-MM-DD)
-envsafe audit --format json             # JSON output
-envsafe audit --format csv              # CSV output
+humsafe audit                           # view all audit entries
+humsafe audit --action set              # filter by action (set, get, delete, rotate)
+humsafe audit --user alice@example.com  # filter by user
+humsafe audit --env production          # filter by environment
+humsafe audit --since 2024-01-01        # filter entries after date (YYYY-MM-DD)
+humsafe audit --format json             # JSON output
+humsafe audit --format csv              # CSV output
 ```
 
 ### Interactive Browser
 
 ```sh
-envsafe browse       # TUI vault explorer with 4-view navigation
+humsafe browse       # TUI vault explorer with 4-view navigation
 ```
 
 ### All Commands

@@ -1,8 +1,8 @@
-# envsafe — Secrets Interview Log
+# humsafe — Secrets Interview Log
 
 ## Interview Context
 
-Design interview for the envsafe encrypted environment variable manager, a standalone tool with first-class devctl integration.
+Design interview for the humsafe encrypted environment variable manager, a standalone tool with first-class humrun integration.
 
 ---
 
@@ -14,7 +14,7 @@ Design interview for the envsafe encrypted environment variable manager, a stand
 A: AES-256-GCM (authenticated encryption). Master password derived via Argon2id key derivation function.
 
 **Q: Where are vault files stored?**
-A: `.envsafe/` directory in the project root. Contains:
+A: `.humsafe/` directory in the project root. Contains:
 - `vault.enc` — encrypted secrets (binary, AES-256-GCM)
 - `config.json` — unencrypted metadata (project name, envs, team keys)
 - `audit.log` — append-only signed audit trail
@@ -43,7 +43,7 @@ A: `development`. Users can create arbitrary environments.
 ### CLI Design
 
 **Q: What CLI framework?**
-A: Cobra (matching devctl's existing pattern).
+A: Cobra (matching humrun's existing pattern).
 
 **Q: What commands are needed?**
 A: See specification. Core: init, set, get, list, rm, env, unlock, lock, rotate. Team: user add/list/remove. Enterprise: audit, user role. Server: serve, login, share.
@@ -69,13 +69,13 @@ A: Email/password + TOTP 2FA + OIDC SSO.
 **Q: RBAC model?**
 A: Three roles — Admin (full access), Developer (read/write assigned envs), Viewer (read-only assigned envs).
 
-### devctl Integration
+### humrun Integration
 
-**Q: How does devctl discover the vault?**
-A: Checks for `.envsafe/` directory in the project root. If found and app has `vault_env` field, injects decrypted secrets into the process environment.
+**Q: How does humrun discover the vault?**
+A: Checks for `.humsafe/` directory in the project root. If found and app has `vault_env` field, injects decrypted secrets into the process environment.
 
 **Q: How are plain-text env vars migrated?**
-A: `envsafe init` detects existing `env` values in apps.json and offers to import them into the vault, removing plain-text values.
+A: `humsafe init` detects existing `env` values in apps.json and offers to import them into the vault, removing plain-text values.
 
 **Q: Is env var exposure in process environment a concern?**
 A: Yes, documented as a known limitation. Secrets are visible in `/proc/<pid>/environ` on Linux. Future: consider a secrets socket approach.
@@ -94,7 +94,7 @@ A: Manual rotation with reminders. Previous values stored for rollback. Rotation
 A: Full secret management interface (not just a dashboard). Set/get/list secrets, manage environments, admin features.
 
 **Q: TUI scope?**
-A: Standalone Bubble Tea TUI via `envsafe browse`. Browse secrets, environments, users, audit logs.
+A: Standalone Bubble Tea TUI via `humsafe browse`. Browse secrets, environments, users, audit logs.
 
 ---
 

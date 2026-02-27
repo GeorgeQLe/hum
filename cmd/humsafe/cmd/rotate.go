@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/georgele/devctl/internal/vault"
+	"github.com/georgele/hum/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -15,8 +15,8 @@ func RotateCmd() *cobra.Command {
 		Short: "Rotate a secret (stores previous value in history)",
 		Long: `Update a secret's value and store the previous value in rotation history.
 Use this instead of 'set' when you want to keep a record of previous values.`,
-		Example: `  envsafe rotate API_KEY sk-new-value
-  envsafe rotate -e production DB_PASSWORD newpass123`,
+		Example: `  humsafe rotate API_KEY sk-new-value
+  humsafe rotate -e production DB_PASSWORD newpass123`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, newValue := args[0], args[1]
@@ -34,7 +34,7 @@ Use this instead of 'set' when you want to keep a record of previous values.`,
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			v, err := openAndUnlock(projectRoot)

@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/georgele/devctl/internal/health"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/health"
+	"github.com/georgele/hum/internal/process"
 )
 
-const systemName = "devctl"
+const systemName = "humrun"
 
 // sidebarRow represents a row in the sidebar, which may be a group header or an app entry.
 type sidebarRow struct {

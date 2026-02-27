@@ -1,4 +1,4 @@
--- envsafe initial database schema
+-- humsafe initial database schema
 -- Row-level multi-tenancy: tenant_id on every table
 
 CREATE TABLE IF NOT EXISTS tenants (

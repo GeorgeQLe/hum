@@ -50,7 +50,7 @@ export default function App() {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: 20 }}>
       <header style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, color: '#58a6ff' }}>envsafe</h1>
+        <h1 style={{ fontSize: 24, color: '#58a6ff' }}>humsafe</h1>
         <nav style={{ display: 'flex', gap: 8 }}>
           {(['secrets', 'environments', 'users', 'audit'] as View[]).map(v => (
             <button

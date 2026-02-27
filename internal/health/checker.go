@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/georgele/devctl/internal/panicutil"
+	"github.com/georgele/hum/internal/panicutil"
 )
 
 // Status represents the health status of an app.

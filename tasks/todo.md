@@ -1,4 +1,4 @@
-# devctl - Audit PR List
+# humrun - Audit PR List
 
 50 PRs split into 10 phases. Each phase can be developed, tested, and merged independently.
 Later phases build on earlier ones, so execute in order.
@@ -9,7 +9,7 @@ Later phases build on earlier ones, so execute in order.
 
 Everything else depends on this. Split the giant files so PRs don't conflict, add CI so every subsequent phase is validated automatically.
 
-- [ ] **PR #1: Split `main.go` (21K lines) into proper Cobra command files** - Extract each subcommand (`ping`, `status`, `add`, `stats`, `scan`, `dev`, `start`, `stop`, `restart`) into `cmd/devctl/` files following standard Cobra patterns. Single biggest maintainability blocker.
+- [ ] **PR #1: Split `main.go` (21K lines) into proper Cobra command files** - Extract each subcommand (`ping`, `status`, `add`, `stats`, `scan`, `dev`, `start`, `stop`, `restart`) into `cmd/humrun/` files following standard Cobra patterns. Single biggest maintainability blocker.
 - [ ] **PR #2: Split `tui/model.go` (3,444 lines) into composable sub-models** - Refactor into sub-models with their own `Update()` / `View()` methods. Reduces cognitive load, enables independent testing, prevents merge conflicts.
 - [ ] **PR #3: Add CI pipeline (GitHub Actions)** - `go vet`, `staticcheck`, `go test -race ./...`, `golangci-lint`, build matrix (linux/darwin/windows), release automation via GoReleaser.
 - [ ] **PR #4: Return 501 Not Implemented for stub endpoints** - `internal/server/handlers.go` has ~8 handler stubs (register, login, TOTP, secrets CRUD) returning 200 OK with placeholder bodies.
@@ -42,9 +42,9 @@ Add structured logging so all future development is easier to debug. Must land b
 - [ ] **PR #26: Add structured logging with slog** - Replace mixed `log.Printf` / `fmt.Fprintf(os.Stderr)` / silent swallows with Go 1.21+ `log/slog`. Add levels, JSON output mode.
 - [ ] **PR #27: Add `--debug` flag with verbose output** - Enable debug-level logging, print IPC messages, show config load steps, report event channel utilization, dump process manager state.
 - [ ] **PR #28: Surface dropped events and error counts in TUI** - Add status bar indicator for dropped events, error buffer size, memory usage, IPC queue depth.
-- [ ] **PR #29: Add `devctl debug dump` for bug reports** - Dump Go version, OS, terminal size, running apps, port allocations, IPC status, event queue depth, memory usage, last 100 log lines per app. Anonymize secrets.
+- [ ] **PR #29: Add `humrun debug dump` for bug reports** - Dump Go version, OS, terminal size, running apps, port allocations, IPC status, event queue depth, memory usage, last 100 log lines per app. Anonymize secrets.
 
-**Test milestone:** `devctl dev --debug` produces structured JSON logs. `devctl debug dump` outputs valid diagnostic report. TUI status bar shows event/error counts.
+**Test milestone:** `humrun dev --debug` produces structured JSON logs. `humrun debug dump` outputs valid diagnostic report. TUI status bar shows event/error counts.
 
 ---
 
@@ -65,15 +65,15 @@ Now that the code is split, correct, and observable -- add proper test coverage 
 
 Add new subcommands and quality-of-life improvements. Each is an independent feature that can be tested in isolation.
 
-- [ ] **PR #11: Add `devctl init` interactive scaffolding** - Detect package managers, ask for app names/ports/commands, generate `apps.json`, optionally run `devctl scan`.
-- [ ] **PR #12: Add `devctl validate` for config linting** - Validate JSON syntax, check fields against schema, detect dependency cycles, validate port ranges, warn about missing health checks.
-- [ ] **PR #14: Add `devctl logs` CLI subcommand** - `devctl logs <app> [--follow] [--lines N] [--since 5m]` connecting via IPC, streaming to stdout.
+- [ ] **PR #11: Add `humrun init` interactive scaffolding** - Detect package managers, ask for app names/ports/commands, generate `apps.json`, optionally run `humrun scan`.
+- [ ] **PR #12: Add `humrun validate` for config linting** - Validate JSON syntax, check fields against schema, detect dependency cycles, validate port ranges, warn about missing health checks.
+- [ ] **PR #14: Add `humrun logs` CLI subcommand** - `humrun logs <app> [--follow] [--lines N] [--since 5m]` connecting via IPC, streaming to stdout.
 - [ ] **PR #15: Support JSONC or YAML for apps.json** - JSON has no comments. Support JSONC or YAML as alternative formats with auto-detection.
-- [ ] **PR #16: Add `devctl doctor` diagnostic command** - Verify `lsof` availability, check port conflicts, validate config, test IPC socket, verify dependencies, check disk space.
-- [ ] **PR #17: Add shell completions (bash/zsh/fish)** - `devctl completion bash|zsh|fish` using Cobra's built-in generator. Include completions for app names.
-- [ ] **PR #37: Add man pages and `--help` improvements** - Detailed `--help` with examples, `devctl help <topic>` for concepts, generate man pages from Cobra.
+- [ ] **PR #16: Add `humrun doctor` diagnostic command** - Verify `lsof` availability, check port conflicts, validate config, test IPC socket, verify dependencies, check disk space.
+- [ ] **PR #17: Add shell completions (bash/zsh/fish)** - `humrun completion bash|zsh|fish` using Cobra's built-in generator. Include completions for app names.
+- [ ] **PR #37: Add man pages and `--help` improvements** - Detailed `--help` with examples, `humrun help <topic>` for concepts, generate man pages from Cobra.
 
-**Test milestone:** `devctl init` generates valid config. `devctl validate` catches bad configs. `devctl logs` streams in real time. `devctl doctor` reports all checks. Completions load in each shell.
+**Test milestone:** `humrun init` generates valid config. `humrun validate` catches bad configs. `humrun logs` streams in real time. `humrun doctor` reports all checks. Completions load in each shell.
 
 ---
 
@@ -81,9 +81,9 @@ Add new subcommands and quality-of-life improvements. Each is an independent fea
 
 Currently logs are memory-only. This phase adds disk persistence, real-time HTTP streaming, and batch export.
 
-- [ ] **PR #6: Persist logs to disk with rotation** - Add per-app log files under `.devctl/logs/`, configurable retention (lines/time/size), and `devctl logs --tail`.
+- [ ] **PR #6: Persist logs to disk with rotation** - Add per-app log files under `.humrun/logs/`, configurable retention (lines/time/size), and `humrun logs --tail`.
 - [ ] **PR #13: Add real-time log streaming to HTTP API** - `api/handlers.go:164` has a stub. Implement proper SSE push from log buffer so external tools can tail logs.
-- [ ] **PR #44: Add log export (JSON, file, S3)** - `devctl logs export --format json|text --output ./logs/` for batch export, `--stream-to` for continuous export.
+- [ ] **PR #44: Add log export (JSON, file, S3)** - `humrun logs export --format json|text --output ./logs/` for batch export, `--stream-to` for continuous export.
 
 **Test milestone:** Kill TUI, restart, verify logs survived on disk. `curl` the SSE endpoint and see live log lines. Export produces valid JSON/text files. Rotation caps disk usage.
 
@@ -93,9 +93,9 @@ Currently logs are memory-only. This phase adds disk persistence, real-time HTTP
 
 Harden IPC, HTTP API, vault, and command execution. Each PR is independently testable.
 
-- [ ] **PR #10: Fix IPC socket security -- use XDG_RUNTIME_DIR** - Move socket to `$XDG_RUNTIME_DIR/devctl/` (Linux) or `~/Library/Caches/devctl/` (macOS) with 0700 permissions. Add client auth via nonce.
+- [ ] **PR #10: Fix IPC socket security -- use XDG_RUNTIME_DIR** - Move socket to `$XDG_RUNTIME_DIR/humrun/` (Linux) or `~/Library/Caches/humrun/` (macOS) with 0700 permissions. Add client auth via nonce.
 - [ ] **PR #22: Validate and sandbox shell commands from apps.json** - Add allowlist validation, `--dry-run` preview, and warnings for shell metacharacters (`;`, `&&`, `|`).
-- [ ] **PR #23: Rotate API bearer tokens** - Add token expiry (24h), auto-rotation on restart, `devctl token rotate`, and token scoping (read-only vs mutating).
+- [ ] **PR #23: Rotate API bearer tokens** - Add token expiry (24h), auto-rotation on restart, `humrun token rotate`, and token scoping (read-only vs mutating).
 - [ ] **PR #24: Add rate limiting to IPC and HTTP API** - Per-client limits (100 req/s IPC, 60 req/min HTTP mutations) with 429 responses.
 - [ ] **PR #25: Audit logging for all secret operations** - Add structured audit entries for access, modify, rotate, share, delete. Feed into `vault/audit/audit.go`.
 
@@ -108,12 +108,12 @@ Harden IPC, HTTP API, vault, and command execution. Each PR is independently tes
 Wire health checks into process management, add lifecycle hooks, environment injection, and dependency gating.
 
 - [ ] **PR #9: Integrate health checks with auto-restart logic** - Wire health status into supervisor: unhealthy for N checks -> restart. App can be "running" (PID alive) while returning 500s.
-- [ ] **PR #38: Add `.env` file support per app** - Per-app `.env` paths in config, auto-reload on change, variable expansion, integration with envsafe vault injection.
+- [ ] **PR #38: Add `.env` file support per app** - Per-app `.env` paths in config, auto-reload on change, variable expansion, integration with humsafe vault injection.
 - [ ] **PR #39: Add pre/post lifecycle hooks** - `preStart`, `postStart`, `preStop`, `postStop` hooks running shell commands. Use case: migrations before server start.
-- [ ] **PR #41: Add `devctl exec <app> <command>`** - Run one-off command with app's env/cwd/port config. Essential for migrations, seeds, REPL.
+- [ ] **PR #41: Add `humrun exec <app> <command>`** - Run one-off command with app's env/cwd/port config. Essential for migrations, seeds, REPL.
 - [ ] **PR #42: Add dependency health gating** - Wait for dependency health check to pass before starting dependent app. Configurable timeout and failure behavior.
 
-**Test milestone:** App returning 500 gets auto-restarted after N failures. `.env` vars visible in `devctl exec`. Hooks fire in correct order. Dependent app waits for healthy upstream.
+**Test milestone:** App returning 500 gets auto-restarted after N failures. `.env` vars visible in `humrun exec`. Hooks fire in correct order. Dependent app waits for healthy upstream.
 
 ---
 
@@ -132,14 +132,14 @@ Optimize the TUI now that all features are in. Benchmark tests from Phase 4 catc
 
 Package for distribution, add remaining features, and clean up dead code.
 
-- [ ] **PR #34: Add Dockerfile and docker-compose example** - Multi-stage Dockerfile + `docker-compose.yml` showing devctl managing services in a container.
-- [ ] **PR #35: Add Homebrew formula** - Homebrew tap with formula for `brew install devctl`. Pre-built bottles for common platforms.
+- [ ] **PR #34: Add Dockerfile and docker-compose example** - Multi-stage Dockerfile + `docker-compose.yml` showing humrun managing services in a container.
+- [ ] **PR #35: Add Homebrew formula** - Homebrew tap with formula for `brew install humrun`. Pre-built bottles for common platforms.
 - [ ] **PR #36: Add GoReleaser config for cross-platform releases** - `.goreleaser.yml` for linux/darwin/windows (amd64/arm64), GitHub releases with checksums, changelog.
 - [ ] **PR #40: Add webhook/notification integration** - Slack webhook on crash, generic webhook POST on state change, `notify-send` on Linux, configurable rules per app.
 - [ ] **PR #43: Add process resource limits** - Optional `resources: { maxMemoryMB: 512, cpuLimit: 50 }` in apps.json. Use `ulimit` (macOS) or cgroups (Linux).
 - [ ] **PR #45: Add HTTP API approval endpoint** - `POST /api/approvals/{id}/approve` and `POST /api/approvals/{id}/deny` for CI/CD and external tools.
 - [ ] **PR #49: Add Go doc comments to all exported symbols** - `godoc`-compatible comments to all public APIs across all packages.
-- [ ] **PR #50: Remove dead code and TODO stubs** - Placeholder directories (`server/handlers/`, `envsafe-tui/views/`), incomplete DB queries. Implement or remove.
+- [ ] **PR #50: Remove dead code and TODO stubs** - Placeholder directories (`server/handlers/`, `humsafe-tui/views/`), incomplete DB queries. Implement or remove.
 
 **Test milestone:** `goreleaser --snapshot` produces binaries for all platforms. `brew install` works. Docker image builds and runs. All TODOs resolved or removed.
 
@@ -149,14 +149,14 @@ Package for distribution, add remaining features, and clean up dead code.
 
 - [x] **Config File Watcher** - Auto-reload `apps.json` when it changes on disk
 - [x] **Log Timestamps** - Toggle (`t` key) to prefix log lines with timestamps
-- [x] **Session Persistence** - Save running apps on exit to `.devctl-state.json`; `--restore` flag
+- [x] **Session Persistence** - Save running apps on exit to `.humrun-state.json`; `--restore` flag
 - [x] **Quick Keyboard Shortcuts** - `s`/`S`/`r` shortcuts in sidebar for start/stop/restart
 - [x] **Production Readiness Fixes** — Concurrency, security, and reliability hardening:
   - Fix data race on `m.apps` between HTTP goroutines and Bubble Tea (channel-based mutations + RWMutex snapshot)
   - Fix `ErrorBuffer.Errors` direct access without lock (added `SnapshotErrors()`)
   - Fix `Entry.Cmd = nil` mutation from wrong goroutine (added `GetDetail()`)
   - Constant-time bearer token comparison (`subtle.ConstantTimeCompare`)
-  - Strip sensitive env vars (`ENVSAFE_`, `DEVCTL_TOKEN`) from child processes
+  - Strip sensitive env vars (`HUMSAFE_`, `HUMRUN_TOKEN`) from child processes
   - Path traversal check in API register endpoint
   - IPC `Stop()` double-close panic (wrap in `closeOnce.Do`)
   - Redact env variable values in API responses

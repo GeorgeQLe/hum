@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/georgele/devctl/internal/ipc"
+	"github.com/georgele/hum/internal/ipc"
 )
 
 const (
@@ -36,7 +36,7 @@ const (
 	loopRebuild                  // child exited after rebuild signal
 )
 
-// Supervisor watches Go source files and rebuilds/restarts devctl.
+// Supervisor watches Go source files and rebuilds/restarts humrun.
 type Supervisor struct {
 	projectDir string
 	tmpBinary  string
@@ -50,7 +50,7 @@ func New(projectDir string) (*Supervisor, error) {
 		return nil, fmt.Errorf("failed to resolve project dir: %w", err)
 	}
 	hash := sha256.Sum256([]byte(abs))
-	tmpBinary := filepath.Join(os.TempDir(), fmt.Sprintf("devctl-dev-%x", hash[:8]))
+	tmpBinary := filepath.Join(os.TempDir(), fmt.Sprintf("humrun-dev-%x", hash[:8]))
 	return &Supervisor{
 		projectDir: abs,
 		tmpBinary:  tmpBinary,
@@ -91,7 +91,7 @@ func (s *Supervisor) Run() error {
 // runLoop is the outer for-loop: launch child → run child loop → check result.
 func (s *Supervisor) runLoop(watcher *fsnotify.Watcher, sigCh chan os.Signal) error {
 	for {
-		fmt.Println("[dev] Starting devctl...")
+		fmt.Println("[dev] Starting humrun...")
 
 		child, err := s.launchChild()
 		if err != nil {

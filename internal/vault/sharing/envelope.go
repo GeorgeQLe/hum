@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/georgele/devctl/internal/vault/crypto"
+	"github.com/georgele/hum/internal/vault/crypto"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -58,7 +58,7 @@ func EncryptVaultKeyForUser(vaultKey []byte, recipientPubKey [KeySize]byte) (*En
 	defer func() { for i := range shared { shared[i] = 0 } }()
 
 	// Derive AES key from shared secret using HKDF
-	hkdfReader := hkdf.New(sha256.New, shared, nil, []byte("envsafe-vault-key-sharing-v1"))
+	hkdfReader := hkdf.New(sha256.New, shared, nil, []byte("humsafe-vault-key-sharing-v1"))
 	var aesKey [32]byte
 	if _, err := io.ReadFull(hkdfReader, aesKey[:]); err != nil {
 		return nil, fmt.Errorf("deriving AES key: %w", err)
@@ -100,7 +100,7 @@ func DecryptVaultKey(encKey *EncryptedVaultKey, recipientPrivKey [KeySize]byte) 
 	defer func() { for i := range shared { shared[i] = 0 } }()
 
 	// Derive AES key using HKDF
-	hkdfReader := hkdf.New(sha256.New, shared, nil, []byte("envsafe-vault-key-sharing-v1"))
+	hkdfReader := hkdf.New(sha256.New, shared, nil, []byte("humsafe-vault-key-sharing-v1"))
 	var aesKey [32]byte
 	if _, err := io.ReadFull(hkdfReader, aesKey[:]); err != nil {
 		return nil, fmt.Errorf("deriving AES key: %w", err)

@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/georgele/devctl/internal/panicutil"
+	"github.com/georgele/hum/internal/panicutil"
 )
 
 // Status represents the lifecycle state of a managed process.
@@ -163,7 +163,7 @@ func (m *Manager) ResolveEnv(plainEnv map[string]string, vaultEnv string) map[st
 
 	resolved, err := resolver(m.ProjectRoot, plainEnv, vaultEnv)
 	if err != nil {
-		buf := m.GetLogBuffer("devctl")
+		buf := m.GetLogBuffer("humrun")
 		buf.Append(fmt.Sprintf("Warning: vault resolution failed: %v", err), false)
 		return plainEnv
 	}
@@ -334,7 +334,7 @@ func (m *Manager) Start(name, command, dir string, env map[string]string) error 
 				}
 				entry.Cmd = nil
 				entry.mu.Unlock()
-				fmt.Fprintf(os.Stderr, "devctl: panic in process wait goroutine for %s: %v\n", name, r)
+				fmt.Fprintf(os.Stderr, "humrun: panic in process wait goroutine for %s: %v\n", name, r)
 			}
 			close(entry.doneCh)
 		}()
@@ -546,8 +546,8 @@ func (m *Manager) RemoveEntries(name string) {
 	delete(m.ErrorBuffers, name)
 }
 
-// FindDevctlOwner returns the name of a devctl-managed app by PID, or "".
-func (m *Manager) FindDevctlOwner(pid int) string {
+// FindHumrunOwner returns the name of a humrun-managed app by PID, or "".
+func (m *Manager) FindHumrunOwner(pid int) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for name, e := range m.Entries {
@@ -660,7 +660,7 @@ func (m *Manager) sendEvent(evt ProcessEvent) {
 		case m.eventCh <- evt:
 			return
 		case <-time.After(2 * time.Second):
-			fmt.Fprintf(os.Stderr, "devctl: critical event dropped for %s: %s\n",
+			fmt.Fprintf(os.Stderr, "humrun: critical event dropped for %s: %s\n",
 				evt.AppName, eventTypeName(evt.Type))
 		}
 	}
@@ -676,9 +676,9 @@ func (m *Manager) DroppedEvents() int64 {
 // sensitiveEnvPrefixes lists environment variable prefixes that should not
 // be inherited by child processes.
 var sensitiveEnvPrefixes = []string{
-	"ENVSAFE_",
-	"DEVCTL_TOKEN",
-	"DEVCTL_API_TOKEN",
+	"HUMSAFE_",
+	"HUMRUN_TOKEN",
+	"HUMRUN_API_TOKEN",
 }
 
 // filteredEnv returns os.Environ() with sensitive variables stripped.

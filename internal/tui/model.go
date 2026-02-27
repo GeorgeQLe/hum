@@ -6,12 +6,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/health"
-	"github.com/georgele/devctl/internal/ipc"
-	"github.com/georgele/devctl/internal/process"
-	"github.com/georgele/devctl/internal/vault"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/health"
+	"github.com/georgele/hum/internal/ipc"
+	"github.com/georgele/hum/internal/process"
+	"github.com/georgele/hum/internal/vault"
 )
 
 // appsSnapshotStore provides thread-safe read access to the apps list.
@@ -291,7 +291,7 @@ func New(projectRoot string, apps []config.App, startAll, restore bool) Model {
 	}
 
 	// Create approval queue
-	cfg := api.LoadDevctlConfig()
+	cfg := api.LoadHumrunConfig()
 	m.approvalQueue = api.NewApprovalQueue(cfg.Approval)
 
 	// Create apps snapshot store and action channel for thread-safe API access

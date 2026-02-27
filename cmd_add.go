@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/ipc"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/ipc"
+	"github.com/georgele/hum/internal/process"
 )
 
 func newAddCmd() *cobra.Command {
@@ -131,7 +131,7 @@ func runAdd(dir, nameFlag, commandFlag, portsFlag string, autoStart bool) error 
 	if err == nil {
 		// IPC succeeded
 		if resp.OK {
-			fmt.Printf("Added \"%s\" to devctl.\n", resp.Name)
+			fmt.Printf("Added \"%s\" to humrun.\n", resp.Name)
 			if autoStart {
 				fmt.Printf("App \"%s\" is starting.\n", resp.Name)
 			}
@@ -185,7 +185,7 @@ func runAdd(dir, nameFlag, commandFlag, portsFlag string, autoStart bool) error 
 
 	fmt.Printf("Added \"%s\" to apps.json (offline mode).\n", name)
 	if autoStart {
-		fmt.Fprintf(os.Stderr, "Warning: --start requires the devctl TUI to be running.\n")
+		fmt.Fprintf(os.Stderr, "Warning: --start requires the humrun TUI to be running.\n")
 	}
 
 	return nil

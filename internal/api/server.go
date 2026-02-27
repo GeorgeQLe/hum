@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/georgele/devctl/internal/panicutil"
+	"github.com/georgele/hum/internal/panicutil"
 )
 
-// Server is the HTTP API server embedded in the devctl process.
+// Server is the HTTP API server embedded in the humrun process.
 type Server struct {
 	listener   net.Listener
 	httpServer *http.Server

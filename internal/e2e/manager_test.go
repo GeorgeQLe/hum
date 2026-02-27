@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/process"
 )
 
 func TestStartSingleApp(t *testing.T) {

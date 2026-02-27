@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const stateFile = ".devctl-state.json"
+const stateFile = ".humrun-state.json"
 
 // StatePath returns the path to the session state file.
 func StatePath(projectRoot string) string {

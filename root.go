@@ -12,10 +12,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/ipc"
-	"github.com/georgele/devctl/internal/tui"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/ipc"
+	"github.com/georgele/hum/internal/tui"
 )
 
 func newRootCmd() *cobra.Command {
@@ -23,9 +23,9 @@ func newRootCmd() *cobra.Command {
 	var restore bool
 
 	cmd := &cobra.Command{
-		Use:   "devctl",
+		Use:   "humrun",
 		Short: "Multi-app dev server manager",
-		Long:  "devctl — A TUI for managing multiple local development servers",
+		Long:  "humrun — A TUI for managing multiple local development servers",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTUI(startAll, restore)
 		},
@@ -85,13 +85,13 @@ func runTUI(startAll, restore bool) error {
 		if r := recover(); r != nil {
 			p.Kill()
 			stack := debug.Stack()
-			fmt.Fprintf(os.Stderr, "devctl panic: %v\n%s\n", r, stack)
+			fmt.Fprintf(os.Stderr, "humrun panic: %v\n%s\n", r, stack)
 
 			// Write crash log
-			crashDir := filepath.Join(os.TempDir(), "devctl-crashes")
+			crashDir := filepath.Join(os.TempDir(), "humrun-crashes")
 			if err := os.MkdirAll(crashDir, 0755); err == nil {
 				crashFile := filepath.Join(crashDir, fmt.Sprintf("crash-%d.log", time.Now().Unix()))
-				content := fmt.Sprintf("devctl panic: %v\n\n%s", r, stack)
+				content := fmt.Sprintf("humrun panic: %v\n\n%s", r, stack)
 				os.WriteFile(crashFile, []byte(content), 0600) //nolint:errcheck // best-effort crash log
 				fmt.Fprintf(os.Stderr, "crash log written to %s\n", crashFile)
 			}

@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/process"
 )
 
 // ErrorStreamMode is an overlay mode that displays a browsable, collapsible

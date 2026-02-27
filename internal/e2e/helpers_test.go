@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/health"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/health"
+	"github.com/georgele/hum/internal/process"
 )
 
 // TestEnv provides an isolated test environment with a process manager.

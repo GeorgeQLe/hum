@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/georgele/devctl/internal/health"
+	"github.com/georgele/hum/internal/health"
 )
 
 func TestHealthCheckTransition(t *testing.T) {

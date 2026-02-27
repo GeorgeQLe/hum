@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/ipc"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/ipc"
 )
 
 func newStatsCmd() *cobra.Command {
@@ -20,9 +20,9 @@ func newStatsCmd() *cobra.Command {
 		Use:   "stats",
 		Short: "Show resource statistics",
 		Long:  "Show CPU, memory, and uptime statistics for all managed apps.",
-		Example: `  devctl stats
-  devctl stats --watch
-  devctl stats --json`,
+		Example: `  humrun stats
+  humrun stats --watch
+  humrun stats --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStats(statsWatch, statsJSON)
@@ -63,7 +63,7 @@ func runStats(watch, jsonOut bool) error {
 					if json.Unmarshal(data, &resp) == nil {
 						info, _ := api.ReadDiscovery()
 						if info != nil {
-							fmt.Printf("devctl (PID %d) — API on port %d\n\n", info.PID, info.Port)
+							fmt.Printf("humrun (PID %d) — API on port %d\n\n", info.PID, info.Port)
 						}
 						fmt.Printf("  %-20s %-10s %8s %10s %10s %10s %s\n",
 							"NAME", "STATUS", "CPU", "MEM", "PEAK CPU", "PEAK MEM", "UPTIME")
@@ -104,7 +104,7 @@ func runStats(watch, jsonOut bool) error {
 		client := ipc.NewClient(projectRoot)
 		resp, err := client.Stats()
 		if err != nil {
-			return fmt.Errorf("devctl is not running: %w", err)
+			return fmt.Errorf("humrun is not running: %w", err)
 		}
 
 		if !resp.OK {
@@ -122,7 +122,7 @@ func runStats(watch, jsonOut bool) error {
 			if watch {
 				fmt.Print("\033[2J\033[H")
 			}
-			fmt.Printf("devctl (PID %d) — %s\n\n", resp.PID, resp.Project)
+			fmt.Printf("humrun (PID %d) — %s\n\n", resp.PID, resp.Project)
 
 			if resp.Apps == nil {
 				fmt.Println("  No apps configured.")

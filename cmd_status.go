@@ -8,15 +8,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/ipc"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/ipc"
 )
 
 func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show running instance status",
-		Long:  "Show the status of all managed apps in the current devctl instance.",
+		Long:  "Show the status of all managed apps in the current humrun instance.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus()
@@ -39,7 +39,7 @@ func runStatus() error {
 			}
 			if json.Unmarshal(data, &resp) == nil {
 				info, _ := api.ReadDiscovery()
-				fmt.Printf("devctl (PID %d) — API on port %d\n", info.PID, info.Port)
+				fmt.Printf("humrun (PID %d) — API on port %d\n", info.PID, info.Port)
 				if len(resp.Apps) == 0 {
 					fmt.Println("  No apps configured.")
 					return nil
@@ -79,7 +79,7 @@ func runStatus() error {
 	client := ipc.NewClient(projectRoot)
 	resp, err := client.Status()
 	if err != nil {
-		return fmt.Errorf("devctl is not running: %w", err)
+		return fmt.Errorf("humrun is not running: %w", err)
 	}
 
 	if !resp.OK {
@@ -87,7 +87,7 @@ func runStatus() error {
 		os.Exit(1)
 	}
 
-	fmt.Printf("devctl (PID %d) — %s\n", resp.PID, resp.Project)
+	fmt.Printf("humrun (PID %d) — %s\n", resp.PID, resp.Project)
 
 	if resp.Apps == nil {
 		fmt.Println("  No apps configured.")

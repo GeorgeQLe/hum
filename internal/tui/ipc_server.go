@@ -9,9 +9,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/ipc"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/ipc"
+	"github.com/georgele/hum/internal/process"
 )
 
 func (m Model) listenForIPCRequests() tea.Cmd {
@@ -208,7 +208,7 @@ func (m *Model) handleIPCAddApp(msg ipc.IPCRequestMsg) {
 	msg.ResponseCh <- ipc.Response{
 		OK:      true,
 		Name:    entry.Name,
-		Message: fmt.Sprintf("Added \"%s\" to devctl", entry.Name),
+		Message: fmt.Sprintf("Added \"%s\" to humrun", entry.Name),
 	}
 }
 

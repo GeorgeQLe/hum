@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/georgele/devctl/internal/vault"
+	"github.com/georgele/hum/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -14,8 +14,8 @@ func GetCmd() *cobra.Command {
 		Use:   "get <key>",
 		Short: "Retrieve a secret",
 		Long:  "Retrieve and print a single secret value from the vault.",
-		Example: `  envsafe get API_KEY
-  envsafe get -e production DATABASE_URL`,
+		Example: `  humsafe get API_KEY
+  humsafe get -e production DATABASE_URL`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
@@ -33,7 +33,7 @@ func GetCmd() *cobra.Command {
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			v, err := openAndUnlock(projectRoot)

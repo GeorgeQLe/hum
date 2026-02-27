@@ -1,16 +1,16 @@
-# envsafe — Encrypted Environment Variable Manager
+# humsafe — Encrypted Environment Variable Manager
 
 ## Overview
 
-**envsafe** is a standalone encrypted secrets manager with first-class devctl integration. It provides encryption at rest and in transit across three tiers: solo developer, team, and enterprise.
+**humsafe** is a standalone encrypted secrets manager with first-class humrun integration. It provides encryption at rest and in transit across three tiers: solo developer, team, and enterprise.
 
 ## Architecture
 
 Monorepo structure — two binaries, shared internal packages:
 
 ```
-cmd/devctl/main.go          # existing CLI (currently at root main.go)
-cmd/envsafe/main.go         # new standalone CLI
+cmd/humrun/main.go          # existing CLI (currently at root main.go)
+cmd/humsafe/main.go         # new standalone CLI
 internal/vault/             # encryption, vault CRUD, key derivation
 internal/vault/keychain/    # OS keychain integration (macOS/Linux/Windows)
 internal/vault/crypto/      # Argon2id + AES-256-GCM primitives
@@ -36,7 +36,7 @@ web/                        # Vite + React SPA (embedded in Go binary)
 - Hierarchy: **Project > Environment > Key**
 - Example: `myapp/development/DB_URL`, `myapp/production/STRIPE_KEY`
 
-## Local Vault Storage (`.envsafe/` in project root)
+## Local Vault Storage (`.humsafe/` in project root)
 
 - `vault.enc` — AES-256-GCM encrypted secrets (binary)
 - `config.json` — unencrypted metadata (project name, environments, team member public keys)
@@ -46,29 +46,29 @@ web/                        # Vite + React SPA (embedded in Go binary)
 ## CLI Commands
 
 ```
-envsafe init                          # Initialize vault for a project
-envsafe set <key> <value> -e <env>    # Set a secret
-envsafe get <key> -e <env>            # Retrieve a secret
-envsafe list -e <env>                 # List keys (not values)
-envsafe rm <key> -e <env>             # Remove a secret
-envsafe env -e <env>                  # Export all as KEY=VALUE
-envsafe unlock                        # Unlock vault (cache key in OS keychain)
-envsafe lock                          # Clear cached key
-envsafe browse                        # Open standalone Bubble Tea TUI
-envsafe user add <email>              # Team: invite user
-envsafe user role <email> <role>      # Enterprise: set role
-envsafe audit                         # Enterprise: view audit log
-envsafe rotate <key> -e <env>         # Update secret + track history
-envsafe share <key> -e <env>          # One-time share link (requires server)
-envsafe serve                         # Start the central server
-envsafe login                         # Authenticate with server
+humsafe init                          # Initialize vault for a project
+humsafe set <key> <value> -e <env>    # Set a secret
+humsafe get <key> -e <env>            # Retrieve a secret
+humsafe list -e <env>                 # List keys (not values)
+humsafe rm <key> -e <env>             # Remove a secret
+humsafe env -e <env>                  # Export all as KEY=VALUE
+humsafe unlock                        # Unlock vault (cache key in OS keychain)
+humsafe lock                          # Clear cached key
+humsafe browse                        # Open standalone Bubble Tea TUI
+humsafe user add <email>              # Team: invite user
+humsafe user role <email> <role>      # Enterprise: set role
+humsafe audit                         # Enterprise: view audit log
+humsafe rotate <key> -e <env>         # Update secret + track history
+humsafe share <key> -e <env>          # One-time share link (requires server)
+humsafe serve                         # Start the central server
+humsafe login                         # Authenticate with server
 ```
 
 ## Sharing Mechanisms
 
 1. **Git-committed vault** (team tier): Asymmetric key pairs per user, vault keys encrypted per-user (envelope encryption)
 2. **Central server** (enterprise tier): Go HTTP server + Postgres, REST API
-3. **One-time share links**: Time-limited encrypted payloads hosted on the envsafe server
+3. **One-time share links**: Time-limited encrypted payloads hosted on the humsafe server
 
 ## Server Architecture
 
@@ -101,14 +101,14 @@ envsafe login                         # Authenticate with server
 
 ## TUI
 
-- Standalone Bubble Tea TUI via `envsafe browse`
-- Shares styling patterns with devctl (Lipgloss)
+- Standalone Bubble Tea TUI via `humsafe browse`
+- Shares styling patterns with humrun (Lipgloss)
 
-## devctl Integration
+## humrun Integration
 
-- **Auto-inject**: devctl detects `.envsafe/` vault, prompts for unlock, injects decrypted secrets into app processes
+- **Auto-inject**: humrun detects `.humsafe/` vault, prompts for unlock, injects decrypted secrets into app processes
 - **apps.json change**: New `vault_env` field replaces plain-text `env` values
-- **Migration**: `envsafe init` auto-detects existing `env` in apps.json, offers to import
+- **Migration**: `humsafe init` auto-detects existing `env` in apps.json, offers to import
 
 ## Platforms
 
@@ -117,7 +117,7 @@ envsafe login                         # Authenticate with server
 ## Implementation Phases
 
 1. Core Encryption & Local Vault
-2. devctl Integration
+2. humrun Integration
 3. Git-Based Team Sharing
 4. Central Server + REST API
 5. Enterprise Features

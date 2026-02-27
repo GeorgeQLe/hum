@@ -65,7 +65,7 @@ func TestEncryptDecrypt(t *testing.T) {
 		key[i] = byte(i)
 	}
 
-	plaintext := []byte("hello, envsafe!")
+	plaintext := []byte("hello, humsafe!")
 
 	ciphertext, err := Encrypt(key, plaintext)
 	if err != nil {

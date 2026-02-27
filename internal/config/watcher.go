@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/georgele/devctl/internal/panicutil"
+	"github.com/georgele/hum/internal/panicutil"
 )
 
 // Watcher watches apps.json for changes and notifies via a channel.

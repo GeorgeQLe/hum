@@ -18,7 +18,7 @@ jobs:
 
       - run: go mod download
       - run: go mod verify
-      - run: go build -o devctl .
+      - run: go build -o humrun .
       - run: go test -race -count=1 ./...
 
   e2e-test:

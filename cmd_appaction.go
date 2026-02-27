@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/ipc"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/ipc"
 )
 
 func newStartCmd() *cobra.Command {
@@ -95,7 +95,7 @@ func runAppAction(action, target string) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("devctl is not running: %w", err)
+		return fmt.Errorf("humrun is not running: %w", err)
 	}
 
 	if resp.OK {

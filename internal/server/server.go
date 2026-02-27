@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/georgele/devctl/internal/server/auth"
+	"github.com/georgele/hum/internal/server/auth"
 )
 
 // Config holds server configuration.
@@ -23,14 +23,14 @@ type Config struct {
 	AllowedOrigins []string
 }
 
-// Server is the envsafe HTTP server.
+// Server is the humsafe HTTP server.
 type Server struct {
 	config Config
 	router *http.ServeMux
 	server *http.Server
 }
 
-// New creates a new envsafe server.
+// New creates a new humsafe server.
 func New(cfg Config) *Server {
 	if len(cfg.AllowedOrigins) == 0 {
 		cfg.AllowedOrigins = []string{"http://localhost:5173"}
@@ -61,7 +61,7 @@ func (s *Server) Start() error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("envsafe server listening on %s", s.config.Addr)
+	log.Printf("humsafe server listening on %s", s.config.Addr)
 
 	if s.config.TLSCert != "" && s.config.TLSKey != "" {
 		return s.server.ListenAndServeTLS(s.config.TLSCert, s.config.TLSKey)

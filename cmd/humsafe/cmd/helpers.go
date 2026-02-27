@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/georgele/devctl/internal/vault"
-	"github.com/georgele/devctl/internal/vault/keychain"
+	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/keychain"
 	"golang.org/x/term"
 )
 
@@ -33,7 +33,7 @@ func warnIfInsecureHTTP(serverURL string) {
 	}
 }
 
-// findProjectRoot walks up from CWD to find a directory with .envsafe/ or apps.json.
+// findProjectRoot walks up from CWD to find a directory with .humsafe/ or apps.json.
 func findProjectRoot() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -42,7 +42,7 @@ func findProjectRoot() (string, error) {
 
 	dir := cwd
 	for {
-		// Check for .envsafe directory
+		// Check for .humsafe directory
 		if _, err := os.Stat(filepath.Join(dir, vault.VaultDir)); err == nil {
 			return dir, nil
 		}

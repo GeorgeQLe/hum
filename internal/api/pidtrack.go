@@ -16,9 +16,9 @@ type PIDEntry struct {
 	StartedAt time.Time `json:"startedAt"`
 }
 
-// PIDFile represents ~/.devctl/pids.json.
+// PIDFile represents ~/.humrun/pids.json.
 type PIDFile struct {
-	DevctlPID int        `json:"devctlPid"`
+	HumrunPID int        `json:"humrunPid"`
 	Entries   []PIDEntry `json:"entries"`
 }
 
@@ -64,20 +64,20 @@ func RemovePIDFile() {
 }
 
 // FindOrphanedProcesses reads the PID file and returns entries whose
-// parent devctl process is no longer running.
+// parent humrun process is no longer running.
 func FindOrphanedProcesses() []PIDEntry {
 	pf, err := ReadPIDFile()
 	if err != nil {
 		return nil
 	}
 
-	// Check if the devctl process that wrote this file is still alive
-	if pf.DevctlPID > 0 && isProcessAlive(pf.DevctlPID) {
+	// Check if the humrun process that wrote this file is still alive
+	if pf.HumrunPID > 0 && isProcessAlive(pf.HumrunPID) {
 		// Previous instance is still running, no orphans
 		return nil
 	}
 
-	// Previous devctl is dead — check which managed processes are still alive
+	// Previous humrun is dead — check which managed processes are still alive
 	var orphans []PIDEntry
 	for _, entry := range pf.Entries {
 		if entry.PID > 0 && isProcessAlive(entry.PID) {
@@ -93,7 +93,7 @@ func isProcessAlive(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
-// CleanupOrphans kills orphaned processes from a previous devctl instance.
+// CleanupOrphans kills orphaned processes from a previous humrun instance.
 // Returns the names of cleaned up processes.
 func CleanupOrphans() []string {
 	orphans := FindOrphanedProcesses()

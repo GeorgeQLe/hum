@@ -1,4 +1,4 @@
-package envsafetui
+package humsafetui
 
 import (
 	"fmt"
@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/georgele/devctl/internal/vault"
-	"github.com/georgele/devctl/internal/vault/audit"
+	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/audit"
 )
 
 // View represents the current TUI screen.
@@ -36,7 +36,7 @@ var (
 	boxH = "─"
 )
 
-// Model is the Bubble Tea model for envsafe browse.
+// Model is the Bubble Tea model for humsafe browse.
 type Model struct {
 	vault       *vault.Vault
 	auditLogger *audit.Logger
@@ -68,7 +68,7 @@ type Model struct {
 	quitting bool
 }
 
-// New creates a new envsafe TUI model.
+// New creates a new humsafe TUI model.
 func New(v *vault.Vault, logger *audit.Logger) Model {
 	envs := v.ListEnvironments()
 	return Model{
@@ -156,7 +156,7 @@ func (m Model) View() string {
 	}
 
 	// Header
-	header := styleTitle.Render("envsafe") + styleDim.Render(" — encrypted secrets browser")
+	header := styleTitle.Render("humsafe") + styleDim.Render(" — encrypted secrets browser")
 	footer := m.viewFooter()
 
 	return header + "\n" + strings.Repeat(boxH, min(m.width, 60)) + "\n" + content + "\n" + footer

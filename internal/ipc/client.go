@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Client connects to a running devctl IPC server.
+// Client connects to a running humrun IPC server.
 type Client struct {
 	socketPath string
 }
@@ -24,7 +24,7 @@ func NewClient(projectRoot string) *Client {
 func (c *Client) Send(req Request) (*Response, error) {
 	conn, err := net.DialTimeout("unix", c.socketPath, 5*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("could not connect to devctl: %w", err)
+		return nil, fmt.Errorf("could not connect to humrun: %w", err)
 	}
 	defer conn.Close()
 
@@ -56,7 +56,7 @@ func (c *Client) Send(req Request) (*Response, error) {
 	return &resp, nil
 }
 
-// Ping checks if the devctl server is running.
+// Ping checks if the humrun server is running.
 func (c *Client) Ping() (*Response, error) {
 	return c.Send(Request{Action: "ping"})
 }
@@ -66,7 +66,7 @@ func (c *Client) Status() (*Response, error) {
 	return c.Send(Request{Action: "status"})
 }
 
-// AddApp adds an app to the running devctl instance.
+// AddApp adds an app to the running humrun instance.
 func (c *Client) AddApp(appJSON json.RawMessage, cwd string, autoStart bool) (*Response, error) {
 	return c.Send(Request{
 		Action:    "add-app",

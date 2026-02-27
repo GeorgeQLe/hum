@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/georgele/devctl/internal/server"
+	"github.com/georgele/hum/internal/server"
 	"github.com/spf13/cobra"
 )
 
@@ -20,15 +20,15 @@ func ServeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Start the envsafe server [EXPERIMENTAL — not yet functional]",
+		Short: "Start the humsafe server [EXPERIMENTAL — not yet functional]",
 		Args:  cobra.NoArgs,
-		Long: `Start the envsafe server.
+		Long: `Start the humsafe server.
 
 WARNING: The server is experimental and not yet functional.
 All API endpoints currently return 501 Not Implemented.
 Use the local vault commands (init, set, get, list, etc.) for production use.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(os.Stderr, "WARNING: The envsafe server is experimental. All API endpoints return 501 Not Implemented.")
+			fmt.Fprintln(os.Stderr, "WARNING: The humsafe server is experimental. All API endpoints return 501 Not Implemented.")
 			fmt.Fprintln(os.Stderr, "Use local vault commands for production workflows.")
 			fmt.Fprintln(os.Stderr, "")
 			cfg := server.Config{

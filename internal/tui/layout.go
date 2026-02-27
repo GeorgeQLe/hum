@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/georgele/devctl/internal/config"
+	"github.com/georgele/hum/internal/config"
 )
 
 func (m *Model) recalcLayout() {
@@ -138,9 +138,9 @@ func (m *Model) renderCmdContent(width int) string {
 
 	var prompt string
 	if m.focusArea == focusCommand {
-		prompt = styleBold.Render("devctl>") + " "
+		prompt = styleBold.Render("humrun>") + " "
 	} else {
-		prompt = styleDim.Render("devctl>") + " "
+		prompt = styleDim.Render("humrun>") + " "
 	}
 	return padRight(prompt+m.cmdInput+filterIndicator, width)
 }

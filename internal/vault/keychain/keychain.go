@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	serviceName = "envsafe"
+	serviceName = "humsafe"
 )
 
 // Store caches the derived encryption key in the OS keychain.

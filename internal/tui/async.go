@@ -8,10 +8,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/process"
-	"github.com/georgele/devctl/internal/state"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/process"
+	"github.com/georgele/hum/internal/state"
 )
 
 func (m Model) executeAsync(action, target string) tea.Cmd {
@@ -360,7 +360,7 @@ func (m Model) autoStartCmd() tea.Cmd {
 	}
 }
 
-// updatePIDFile writes current managed process PIDs to ~/.devctl/pids.json.
+// updatePIDFile writes current managed process PIDs to ~/.humrun/pids.json.
 func (m *Model) updatePIDFile() {
 	var entries []api.PIDEntry
 	for _, app := range m.apps {
@@ -373,7 +373,7 @@ func (m *Model) updatePIDFile() {
 		}
 	}
 	api.WritePIDFile(api.PIDFile{
-		DevctlPID: os.Getpid(),
+		HumrunPID: os.Getpid(),
 		Entries:   entries,
 	})
 }

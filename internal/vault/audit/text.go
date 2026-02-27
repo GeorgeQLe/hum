@@ -13,7 +13,7 @@ func (r *ComplianceReport) ExportText(w io.Writer) error {
 
 	// Header
 	fmt.Fprintf(&buf, "═══════════════════════════════════════════════════\n")
-	fmt.Fprintf(&buf, "  ENVSAFE COMPLIANCE REPORT\n")
+	fmt.Fprintf(&buf, "  HUMSAFE COMPLIANCE REPORT\n")
 	fmt.Fprintf(&buf, "  Project: %s\n", r.Project)
 	fmt.Fprintf(&buf, "  Generated: %s\n", r.GeneratedAt.Format(time.RFC3339))
 	fmt.Fprintf(&buf, "═══════════════════════════════════════════════════\n\n")

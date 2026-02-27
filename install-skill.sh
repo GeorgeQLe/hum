@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SKILL_DIR="$HOME/.claude/skills/devctl"
+SKILL_DIR="$HOME/.claude/skills/humrun"
 SKILL_FILE="$SKILL_DIR/SKILL.md"
 AGENTS_MD=false
 
@@ -18,39 +18,39 @@ done
 
 # --- Skill body (agent-agnostic) ---
 read -r -d '' SKILL_BODY << 'BODY' || true
-# devctl — Local Dev Environment Manager
+# humrun — Local Dev Environment Manager
 
-devctl is a TUI process orchestrator for running multiple dev servers from a single terminal. It reads `apps.json` to know which services to run.
+humrun is a TUI process orchestrator for running multiple dev servers from a single terminal. It reads `apps.json` to know which services to run.
 
-## Checking if devctl is available
+## Checking if humrun is available
 
 ```bash
 # Is the binary installed?
-command -v devctl
+command -v humrun
 
 # Is the TUI already running for this project?
-devctl ping
+humrun ping
 ```
 
-## Starting devctl
+## Starting humrun
 
 ```bash
-devctl                # launch TUI (interactive)
-devctl --start-all    # launch TUI and start all apps (respects dependency order)
-devctl --restore      # launch TUI and restore previous session state
+humrun                # launch TUI (interactive)
+humrun --start-all    # launch TUI and start all apps (respects dependency order)
+humrun --restore      # launch TUI and restore previous session state
 ```
 
 ## Remote commands (run from another terminal while TUI is running)
 
 ```bash
-devctl ping                          # check if TUI is running
-devctl status                        # list apps with status, PID, ports
-devctl add <dir> [--name n] [--command c] [--ports p1,p2] [--start]
-devctl start <name|all>              # start an app (auto-resolves port conflicts)
-devctl stop <name|all>               # stop an app
-devctl restart <name|all>            # restart an app
-devctl stats [--watch] [--json]      # resource usage (CPU, memory, uptime)
-devctl scan [--json] [--write]       # auto-detect apps in project tree
+humrun ping                          # check if TUI is running
+humrun status                        # list apps with status, PID, ports
+humrun add <dir> [--name n] [--command c] [--ports p1,p2] [--start]
+humrun start <name|all>              # start an app (auto-resolves port conflicts)
+humrun stop <name|all>               # stop an app
+humrun restart <name|all>            # restart an app
+humrun stats [--watch] [--json]      # resource usage (CPU, memory, uptime)
+humrun scan [--json] [--write]       # auto-detect apps in project tree
 ```
 
 ## TUI commands (type `:` in the TUI to open the command line)
@@ -87,7 +87,7 @@ restart @workers
 
 ## Dependencies
 
-The `dependsOn` field lists apps that must be running first. When you start an app, devctl auto-starts its dependencies in topological order.
+The `dependsOn` field lists apps that must be running first. When you start an app, humrun auto-starts its dependencies in topological order.
 
 ```json
 { "name": "web", "dependsOn": ["api", "db"] }
@@ -152,37 +152,37 @@ Starting `web` will start `db` and `api` first if they aren't already running.
 
 **Always prefer auto-detection over hand-writing apps.json.**
 
-1. Run `devctl scan` to preview what the scanner finds
-2. Run `devctl scan --write` to auto-detect apps and write them to `apps.json`
-3. Review the generated `apps.json` — add anything the scanner missed via `devctl add <dir>` or by editing `apps.json` directly
-4. Start everything: `devctl --start-all`
+1. Run `humrun scan` to preview what the scanner finds
+2. Run `humrun scan --write` to auto-detect apps and write them to `apps.json`
+3. Review the generated `apps.json` — add anything the scanner missed via `humrun add <dir>` or by editing `apps.json` directly
+4. Start everything: `humrun --start-all`
 
 **Never hand-write a large apps.json from scratch.** The scanner detects package managers, dev scripts, and ports automatically. Manual entries are error-prone and hard to validate.
 
 ### Add a new service to the project
 
-Preferred one-liner: `devctl add <dir> --start` — auto-detects name, command, and ports, then starts the app.
+Preferred one-liner: `humrun add <dir> --start` — auto-detects name, command, and ports, then starts the app.
 
 If auto-detection doesn't cover your case:
-1. Check what the scanner finds: `devctl scan`
-2. Add manually with overrides: `devctl add <dir> --name myapp --command "node server.js" --ports 3000`
+1. Check what the scanner finds: `humrun scan`
+2. Add manually with overrides: `humrun add <dir> --name myapp --command "node server.js" --ports 3000`
 3. Or edit `apps.json` directly then `:reload` in the TUI
-4. Start it: `devctl start <name>`
+4. Start it: `humrun start <name>`
 
 ### Debug a crashing service
 
 1. Check status: `status <name>` — look at exit code and restart count
 2. Read the logs in the TUI (select the app in the sidebar)
 3. Check port conflicts: `ports`
-4. Check resource usage: `top` or `devctl stats`
+4. Check resource usage: `top` or `humrun stats`
 5. Clear error state after fixing: `clear-errors <name>`
 
 ### Check resource usage
 
 ```bash
-devctl stats              # one-shot from another terminal
-devctl stats --watch      # live updating
-devctl stats --json       # machine-readable
+humrun stats              # one-shot from another terminal
+humrun stats --watch      # live updating
+humrun stats --json       # machine-readable
 ```
 
 Or in the TUI: `top`
@@ -196,39 +196,39 @@ export <name> output.log  # writes to specific file
 
 ## Agent workflow
 
-When using devctl from an AI agent (e.g. Claude Code), follow this recommended flow:
+When using humrun from an AI agent (e.g. Claude Code), follow this recommended flow:
 
-1. **Register and start in one step**: `devctl add <dir> --start`
+1. **Register and start in one step**: `humrun add <dir> --start`
    - Auto-detects app name, command, and ports from `package.json`
-   - When ports can't be detected, devctl assigns a free port and injects `PORT=<port>` env var
+   - When ports can't be detected, humrun assigns a free port and injects `PORT=<port>` env var
    - If the TUI is not running, `add` writes to `apps.json` directly (but can't `--start`)
 
 2. **Control apps after registration**:
-   - `devctl start <name|all>` — starts an app (auto-resolves port conflicts)
-   - `devctl stop <name|all>` — stops an app
-   - `devctl restart <name|all>` — restarts an app
+   - `humrun start <name|all>` — starts an app (auto-resolves port conflicts)
+   - `humrun stop <name|all>` — stops an app
+   - `humrun restart <name|all>` — restarts an app
 
 3. **Manual overrides** when detection is wrong:
    - `--name <name>` — override detected app name
    - `--command <cmd>` — override detected command (e.g. `"node server.js"`)
    - `--ports <p1,p2>` — override detected ports
 
-4. **Bulk setup**: `devctl scan --write` detects all apps in the project tree and writes them to `apps.json` with auto-assigned ports where needed.
+4. **Bulk setup**: `humrun scan --write` detects all apps in the project tree and writes them to `apps.json` with auto-assigned ports where needed.
 
-5. **Check status**: `devctl status` shows all apps with their state, PID, and ports.
+5. **Check status**: `humrun status` shows all apps with their state, PID, and ports.
 BODY
 
 # --- Write SKILL.md ---
-echo "Installing devctl skill for Claude Code..."
+echo "Installing humrun skill for Claude Code..."
 mkdir -p "$SKILL_DIR"
 
 cat > "$SKILL_FILE" << SKILL
 ---
-name: devctl
+name: humrun
 description: >-
-  Manage local dev environments with devctl — start/stop/restart services,
+  Manage local dev environments with humrun — start/stop/restart services,
   check status, manage ports, and monitor resources. Use when working on
-  projects with apps.json or devctl configuration.
+  projects with apps.json or humrun configuration.
 user-invocable: true
 allowed-tools: Bash, Read, Grep, Glob
 ---
@@ -244,4 +244,4 @@ if [ "$AGENTS_MD" = true ]; then
 fi
 
 echo ""
-echo "Done! In Claude Code, type /devctl to invoke the skill."
+echo "Done! In Claude Code, type /humrun to invoke the skill."

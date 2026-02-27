@@ -9,23 +9,23 @@ import (
 	"path/filepath"
 )
 
-// GlobalDir returns the path to ~/.devctl/.
+// GlobalDir returns the path to ~/.humrun/.
 func GlobalDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), ".devctl")
+		return filepath.Join(os.TempDir(), ".humrun")
 	}
-	return filepath.Join(home, ".devctl")
+	return filepath.Join(home, ".humrun")
 }
 
-// DiscoveryInfo is written to ~/.devctl/api.json for client discovery.
+// DiscoveryInfo is written to ~/.humrun/api.json for client discovery.
 type DiscoveryInfo struct {
 	PID   int    `json:"pid"`
 	Port  int    `json:"port"`
 	Token string `json:"token"`
 }
 
-// discoveryPath returns the path to ~/.devctl/api.json.
+// discoveryPath returns the path to ~/.humrun/api.json.
 func discoveryPath() string {
 	return filepath.Join(GlobalDir(), "api.json")
 }
@@ -39,7 +39,7 @@ func GenerateToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// WriteDiscovery writes the discovery file to ~/.devctl/api.json (chmod 600).
+// WriteDiscovery writes the discovery file to ~/.humrun/api.json (chmod 600).
 func WriteDiscovery(info DiscoveryInfo) error {
 	dir := GlobalDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -60,7 +60,7 @@ func WriteDiscovery(info DiscoveryInfo) error {
 	return os.Rename(tmp, path)
 }
 
-// ReadDiscovery reads the discovery file from ~/.devctl/api.json.
+// ReadDiscovery reads the discovery file from ~/.humrun/api.json.
 func ReadDiscovery() (*DiscoveryInfo, error) {
 	data, err := os.ReadFile(discoveryPath())
 	if err != nil {

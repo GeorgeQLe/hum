@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/ipc"
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/ipc"
+	"github.com/georgele/hum/internal/process"
 )
 
 // Update implements tea.Model.
@@ -100,7 +100,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notificationEnd = time.Now().Add(notifyDuration)
 		// Send desktop notification if enabled for this app
 		if app := m.findApp(alert.AppName); app != nil && app.Notifications != nil && *app.Notifications {
-			go process.SendNotification("devctl", alertText)
+			go process.SendNotification("humrun", alertText)
 		}
 		return m, tea.Batch(
 			m.listenForResourceAlerts(),
@@ -214,8 +214,8 @@ func (m Model) View() string {
 	var buf strings.Builder
 
 	// Top border with title
-	title := " " + styleBold.Render("devctl") + " "
-	titleVisLen := 8 // " devctl "
+	title := " " + styleBold.Render("humrun") + " "
+	titleVisLen := 8 // " humrun "
 	topFill := m.width - 2 - 1 - titleVisLen
 	if topFill < 0 {
 		topFill = 0

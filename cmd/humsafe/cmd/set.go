@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/georgele/devctl/internal/vault"
+	"github.com/georgele/hum/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -15,8 +15,8 @@ func SetCmd() *cobra.Command {
 		Short: "Set a secret",
 		Long: `Store an encrypted secret in the vault for the specified environment.
 The key must match [A-Za-z_][A-Za-z0-9_.-]*.`,
-		Example: `  envsafe set API_KEY sk-1234
-  envsafe set -e production DATABASE_URL postgres://...`,
+		Example: `  humsafe set API_KEY sk-1234
+  humsafe set -e production DATABASE_URL postgres://...`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, value := args[0], args[1]
@@ -34,7 +34,7 @@ The key must match [A-Za-z_][A-Za-z0-9_.-]*.`,
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			v, err := openAndUnlock(projectRoot)

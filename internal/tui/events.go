@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/process"
 )
 
 func (m *Model) processEvent(evt process.ProcessEvent) tea.Cmd {
@@ -89,7 +89,7 @@ func (m *Model) processEvent(evt process.ProcessEvent) tea.Cmd {
 	if evt.Type == process.EventCrashed && !m.quitting {
 		// Send desktop notification if enabled for this app
 		if app := m.findApp(evt.AppName); app != nil && app.Notifications != nil && *app.Notifications {
-			go process.SendNotification("devctl", fmt.Sprintf("%s crashed (code %d)", evt.AppName, evt.Code))
+			go process.SendNotification("humrun", fmt.Sprintf("%s crashed (code %d)", evt.AppName, evt.Code))
 		}
 
 		return m.maybeAutoRestart(evt.AppName)

@@ -6,14 +6,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/georgele/devctl/cmd/envsafe/cmd"
+	"github.com/georgele/hum/cmd/humsafe/cmd"
 )
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "envsafe",
+		Use:   "humsafe",
 		Short: "Encrypted environment variable manager",
-		Long:  "envsafe — Encrypted secrets manager with devctl integration",
+		Long:  "humsafe — Encrypted secrets manager with humrun integration",
 	}
 
 	rootCmd.AddCommand(

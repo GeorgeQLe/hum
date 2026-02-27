@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/process"
 )
 
 // TopMode holds state for the live resource dashboard overlay.

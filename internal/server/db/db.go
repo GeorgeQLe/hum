@@ -1,12 +1,12 @@
 package db
 
-// DB provides database access for the envsafe server.
+// DB provides database access for the humsafe server.
 // Currently a placeholder — full implementation requires a Postgres driver
 // (github.com/jackc/pgx or github.com/lib/pq).
 //
 // All queries include tenant_id for row-level multi-tenancy isolation.
 
-// Store defines the database operations for the envsafe server.
+// Store defines the database operations for the humsafe server.
 type Store interface {
 	// Users
 	CreateUser(tenantID, email, passwordHash, role string) (string, error)

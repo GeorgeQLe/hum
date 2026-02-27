@@ -6,7 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/process"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -120,7 +120,7 @@ func renderLogRow(m *Model, rowIdx, width int) string {
 	// Row 0: header
 	if rowIdx == 0 {
 		if m.selectedIdx == 0 {
-			header := " " + styleBold.Render("devctl") + "  " + styleDim.Render("system log")
+			header := " " + styleBold.Render("humrun") + "  " + styleDim.Render("system log")
 			return padRight(header, width)
 		}
 		if app == nil {

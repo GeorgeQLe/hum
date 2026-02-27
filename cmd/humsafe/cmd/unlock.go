@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/georgele/devctl/internal/vault"
-	"github.com/georgele/devctl/internal/vault/keychain"
+	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/keychain"
 	"github.com/spf13/cobra"
 )
 

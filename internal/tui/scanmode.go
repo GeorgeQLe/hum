@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/config"
+	"github.com/georgele/hum/internal/config"
 )
 
 // ScanMode holds state for the scan mode UI.

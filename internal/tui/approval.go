@@ -3,7 +3,7 @@ package tui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/api"
+	"github.com/georgele/hum/internal/api"
 )
 
 // listenForApprovalRequests listens for new approval requests from the API.

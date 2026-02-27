@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/georgele/devctl/internal/process"
+	"github.com/georgele/hum/internal/process"
 )
 
 // SearchMode holds the state for log search.

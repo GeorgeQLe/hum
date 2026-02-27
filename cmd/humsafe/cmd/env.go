@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/georgele/devctl/internal/vault"
+	"github.com/georgele/hum/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -17,9 +17,9 @@ func EnvCmd() *cobra.Command {
 		Short: "Export all secrets as KEY=VALUE",
 		Long: `Export all secrets as KEY='VALUE' pairs, suitable for shell eval or .env files.
 Output is sorted alphabetically for deterministic results.`,
-		Example: `  envsafe env
-  envsafe env -e production > .env
-  eval $(envsafe env)`,
+		Example: `  humsafe env
+  humsafe env -e production > .env
+  eval $(humsafe env)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := findProjectRoot()
@@ -28,7 +28,7 @@ Output is sorted alphabetically for deterministic results.`,
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			v, err := openAndUnlock(projectRoot)

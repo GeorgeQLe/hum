@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 INSTALL_DIR="$HOME/.local/bin"
-BINARY_NAME="devctl"
+BINARY_NAME="humrun"
 
 # 1. Check Go is installed
 if ! command -v go &>/dev/null; then

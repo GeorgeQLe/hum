@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/georgele/devctl/internal/panicutil"
+	"github.com/georgele/hum/internal/panicutil"
 )
 
-var socketDir = filepath.Join(os.TempDir(), "devctl-sockets")
+var socketDir = filepath.Join(os.TempDir(), "humrun-sockets")
 
 const ipcRequestBufferSize = 16
 
@@ -58,7 +58,7 @@ type Server struct {
 // SocketPath returns the socket path for a project root.
 func SocketPath(projectRoot string) string {
 	hash := sha256.Sum256([]byte(projectRoot))
-	socketName := fmt.Sprintf("devctl-%x.sock", hash[:8])
+	socketName := fmt.Sprintf("humrun-%x.sock", hash[:8])
 	return filepath.Join(socketDir, socketName)
 }
 
@@ -77,7 +77,7 @@ func NewServer(projectRoot string) (*Server, error) {
 		if err == nil {
 			// Another instance is running
 			conn.Close()
-			return nil, fmt.Errorf("another devctl instance is running for this project")
+			return nil, fmt.Errorf("another humrun instance is running for this project")
 		}
 		// Stale socket, remove it
 		os.Remove(socketPath)

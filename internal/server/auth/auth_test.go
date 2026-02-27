@@ -84,7 +84,7 @@ func TestTOTPValidate(t *testing.T) {
 }
 
 func TestTOTPProvisioningURI(t *testing.T) {
-	uri := TOTPProvisioningURI("JBSWY3DPEHPK3PXP", "user@example.com", "envsafe")
+	uri := TOTPProvisioningURI("JBSWY3DPEHPK3PXP", "user@example.com", "humsafe")
 	if uri == "" {
 		t.Error("provisioning URI should not be empty")
 	}

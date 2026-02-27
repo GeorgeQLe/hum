@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/panicutil"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/panicutil"
 )
 
 const (

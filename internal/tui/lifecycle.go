@@ -9,10 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/georgele/devctl/internal/api"
-	"github.com/georgele/devctl/internal/config"
-	"github.com/georgele/devctl/internal/process"
-	"github.com/georgele/devctl/internal/state"
+	"github.com/georgele/hum/internal/api"
+	"github.com/georgele/hum/internal/config"
+	"github.com/georgele/hum/internal/process"
+	"github.com/georgele/hum/internal/state"
 )
 
 func (m Model) handleQuit() (tea.Model, tea.Cmd) {

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/georgele/devctl/internal/vault"
-	"github.com/georgele/devctl/internal/vault/audit"
-	"github.com/georgele/devctl/internal/vault/keychain"
+	"github.com/georgele/hum/internal/vault"
+	"github.com/georgele/hum/internal/vault/audit"
+	"github.com/georgele/hum/internal/vault/keychain"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +22,7 @@ func PasswdCmd() *cobra.Command {
 			}
 
 			if !vault.Exists(projectRoot) {
-				return fmt.Errorf("no vault found. Run 'envsafe init' first")
+				return fmt.Errorf("no vault found. Run 'humsafe init' first")
 			}
 
 			// Unlock with current password
