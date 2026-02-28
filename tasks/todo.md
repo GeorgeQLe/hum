@@ -163,3 +163,9 @@ Package for distribution, add remaining features, and clean up dead code.
   - Auth middleware returns JSON errors (not plain text)
   - Tighten file permissions 0644 → 0600 across config, state, approval, crash logs
   - Shared panic recovery helper (`internal/panicutil`) added to all unprotected goroutines
+- [x] **Security Audit Round 1** — E2E audit: 16 findings, 14 fixes, 18 new tests
+- [x] **Security Audit Round 2** — 12 findings, 12 fixes, 15 new tests
+- [x] **Security Audit Round 3** — 3 findings, 3 fixes, 7 new tests:
+  - Email path traversal in `humsafe user add` — validate with `net/mail.ParseAddress()` + reject path separators
+  - Health check SSRF — `ValidateHealthURL()` restricts to localhost, `Register()` returns error, redirect following disabled
+  - Share command HTTP hardening — 30s timeout, 1MB response body limit

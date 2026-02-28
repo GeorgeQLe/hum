@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/georgele/hum/internal/vault"
 	"github.com/spf13/cobra"
@@ -70,13 +71,15 @@ func ShareCmd() *cobra.Command {
 				return fmt.Errorf("encoding request: %w", err)
 			}
 
-			resp, err := http.Post(serverURL+"/api/share", "application/json", bytes.NewReader(body))
+			client := &http.Client{Timeout: 30 * time.Second}
+			resp, err := client.Post(serverURL+"/api/share", "application/json", bytes.NewReader(body))
 			if err != nil {
 				return fmt.Errorf("connecting to server: %w", err)
 			}
 			defer resp.Body.Close()
 
-			respBody, err := io.ReadAll(resp.Body)
+			const maxResponseSize = 1 << 20 // 1 MB
+			respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 			if err != nil {
 				return fmt.Errorf("reading response: %w", err)
 			}

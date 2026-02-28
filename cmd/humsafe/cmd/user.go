@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,18 @@ import (
 	"github.com/georgele/hum/internal/vault"
 	"github.com/georgele/hum/internal/vault/sharing"
 )
+
+// validateEmail checks that the input is a valid email address and safe to use
+// as a filename (no path separators or traversal sequences).
+func validateEmail(email string) error {
+	if strings.Contains(email, "/") || strings.Contains(email, "\\") || strings.Contains(email, "..") {
+		return fmt.Errorf("invalid email %q: contains path separator or traversal sequence", email)
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return fmt.Errorf("invalid email %q: %w", email, err)
+	}
+	return nil
+}
 
 func UserCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -26,6 +39,10 @@ func UserCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email := args[0]
+
+			if err := validateEmail(email); err != nil {
+				return err
+			}
 
 			projectRoot, err := findProjectRoot()
 			if err != nil {

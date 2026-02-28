@@ -30,7 +30,9 @@ func (m *Model) processEvent(evt process.ProcessEvent) tea.Cmd {
 	// Register/unregister health checks
 	if evt.Type == process.EventStarted {
 		if app := m.findApp(evt.AppName); app != nil && app.HealthCheck != nil && app.HealthCheck.URL != "" {
-			m.healthChecker.Register(app.Name, app.HealthCheck.URL, app.HealthCheck.Interval)
+			if err := m.healthChecker.Register(app.Name, app.HealthCheck.URL, app.HealthCheck.Interval); err != nil {
+				m.systemLog(fmt.Sprintf("[health] Invalid health check URL for %s: %v", app.Name, err))
+			}
 		}
 	}
 	if evt.Type == process.EventStopped || evt.Type == process.EventCrashed {

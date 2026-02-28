@@ -24,7 +24,9 @@ func TestHealthCheckTransition(t *testing.T) {
 
 	// Register with 1-second interval (minimum allowed).
 	// The initial check runs immediately in the background goroutine.
-	checker.Register("healthy-app", srv.URL, 1000)
+	if err := checker.Register("healthy-app", srv.URL, 1000); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
 
 	// Wait for the status change from unknown to healthy.
 	select {
@@ -55,7 +57,9 @@ func TestHealthCheckUnhealthy(t *testing.T) {
 	checker := health.NewChecker()
 	defer checker.StopAll()
 
-	checker.Register("dead-app", url, 1000)
+	if err := checker.Register("dead-app", url, 1000); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
 
 	// The initial check should fail immediately (connection refused).
 	select {

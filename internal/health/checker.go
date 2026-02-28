@@ -1,8 +1,10 @@
 package health
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -49,6 +51,9 @@ func NewChecker() *Checker {
 		changeCh: make(chan StatusChange, 64),
 		client: &http.Client{
 			Timeout: defaultTimeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
 	}
 }
@@ -58,8 +63,31 @@ func (c *Checker) Changes() <-chan StatusChange {
 	return c.changeCh
 }
 
-// Register starts health checking for an app.
-func (c *Checker) Register(appName, url string, intervalMs int) {
+// ValidateHealthURL checks that a health check URL uses http/https and points
+// to a loopback address. This prevents SSRF attacks where a malicious config
+// could probe internal network services.
+func ValidateHealthURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid health check URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("health check URL must use http or https scheme, got %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return fmt.Errorf("health check URL must point to localhost, got %q", host)
+	}
+	return nil
+}
+
+// Register starts health checking for an app. Returns an error if the URL
+// fails validation.
+func (c *Checker) Register(appName, rawURL string, intervalMs int) error {
+	if err := ValidateHealthURL(rawURL); err != nil {
+		return err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -74,7 +102,7 @@ func (c *Checker) Register(appName, url string, intervalMs int) {
 	}
 
 	ac := &appChecker{
-		url:      url,
+		url:      rawURL,
 		interval: interval,
 		status:   StatusUnknown,
 		stopCh:   make(chan struct{}),
@@ -85,6 +113,8 @@ func (c *Checker) Register(appName, url string, intervalMs int) {
 		defer panicutil.Recover("health poll")
 		c.poll(appName, ac)
 	}()
+
+	return nil
 }
 
 // Unregister stops health checking for an app.
