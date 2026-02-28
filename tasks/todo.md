@@ -12,7 +12,7 @@ Everything else depends on this. Split the giant files so PRs don't conflict, ad
 - [ ] **PR #1: Split `main.go` (21K lines) into proper Cobra command files** - Extract each subcommand (`ping`, `status`, `add`, `stats`, `scan`, `dev`, `start`, `stop`, `restart`) into `cmd/humrun/` files following standard Cobra patterns. Single biggest maintainability blocker.
 - [ ] **PR #2: Split `tui/model.go` (3,444 lines) into composable sub-models** - Refactor into sub-models with their own `Update()` / `View()` methods. Reduces cognitive load, enables independent testing, prevents merge conflicts.
 - [ ] **PR #3: Add CI pipeline (GitHub Actions)** - `go vet`, `staticcheck`, `go test -race ./...`, `golangci-lint`, build matrix (linux/darwin/windows), release automation via GoReleaser.
-- [ ] **PR #4: Return 501 Not Implemented for stub endpoints** - `internal/server/handlers.go` has ~8 handler stubs (register, login, TOTP, secrets CRUD) returning 200 OK with placeholder bodies.
+- [x] **PR #4: Return 501 Not Implemented for stub endpoints** - Done in round 1 security audit. All stubs return 501.
 - [ ] **PR #48: Add golangci-lint config and fix all warnings** - Add `.golangci.yml` with reasonable defaults, fix existing warnings, add to CI.
 
 **Test milestone:** `go build ./...` passes, CI green, all existing tests pass, linter clean.
@@ -93,10 +93,10 @@ Currently logs are memory-only. This phase adds disk persistence, real-time HTTP
 
 Harden IPC, HTTP API, vault, and command execution. Each PR is independently testable.
 
-- [ ] **PR #10: Fix IPC socket security -- use XDG_RUNTIME_DIR** - Move socket to `$XDG_RUNTIME_DIR/humrun/` (Linux) or `~/Library/Caches/humrun/` (macOS) with 0700 permissions. Add client auth via nonce.
+- [x] **PR #10: Fix IPC socket security -- use XDG_RUNTIME_DIR** - Done in round 2 security audit. Sockets moved to `xdg.RuntimeDir()/sockets/` with 0700 dir permissions.
 - [ ] **PR #22: Validate and sandbox shell commands from apps.json** - Add allowlist validation, `--dry-run` preview, and warnings for shell metacharacters (`;`, `&&`, `|`).
 - [ ] **PR #23: Rotate API bearer tokens** - Add token expiry (24h), auto-rotation on restart, `humrun token rotate`, and token scoping (read-only vs mutating).
-- [ ] **PR #24: Add rate limiting to IPC and HTTP API** - Per-client limits (100 req/s IPC, 60 req/min HTTP mutations) with 429 responses.
+- [x] **PR #24: Add rate limiting to IPC and HTTP API** - Done across rounds 1+2 security audits. API has 100-burst token bucket. Server auth endpoints have 5-burst limiter. IPC has 64KB message limit.
 - [ ] **PR #25: Audit logging for all secret operations** - Add structured audit entries for access, modify, rotate, share, delete. Feed into `vault/audit/audit.go`.
 
 **Test milestone:** Socket permissions are 0700. Stale tokens rejected. Rate limiter returns 429 under load. Audit log records all vault operations. `--dry-run` previews commands without executing.

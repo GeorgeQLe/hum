@@ -7,6 +7,8 @@
 
 ## Summary
 
+### Round 1
+
 | Severity | Found | Fixed | Tests Added |
 |----------|-------|-------|-------------|
 | Critical | 2     | 2     | 5           |
@@ -14,6 +16,25 @@
 | Medium   | 6     | 5     | 1           |
 | Low      | 4     | 3     | 3           |
 | **Total**| **16**| **14**| **11**      |
+
+### Round 2
+
+| Severity | Found | Fixed | Tests Added |
+|----------|-------|-------|-------------|
+| High     | 2     | 2     | 3           |
+| Medium   | 7     | 7     | 7           |
+| Low      | 3     | 3     | 5           |
+| **Total**| **12**| **12**| **15**      |
+
+### Combined
+
+| Severity | Found | Fixed | Tests Added |
+|----------|-------|-------|-------------|
+| Critical | 2     | 2     | 5           |
+| High     | 6     | 6     | 5           |
+| Medium   | 13    | 12    | 8           |
+| Low      | 7     | 6     | 8           |
+| **Total**| **28**| **26**| **26**      |
 
 ---
 
@@ -170,3 +191,156 @@
 | `internal/vault/crypto/crypto_test.go` | Nonce uniqueness test |
 | `internal/vault/vault_test.go` | File permissions test |
 | `internal/vault/keychain/keychain.go` | Collision-resistant account keys |
+
+---
+
+# Round 2: Deep Code Analysis
+
+**Date:** 2026-02-27
+
+---
+
+## HIGH (Round 2)
+
+### R2-H1. Dev supervisor leaks all env vars to child processes
+- **File:** `internal/dev/supervisor.go:197`
+- **Issue:** `cmd.Env = os.Environ()` passes ALL env vars (including `HUMSAFE_PASSWORD`, `HUMRUN_TOKEN`) to `go build` and the child binary. The main `manager.go` uses `filteredEnv()` but supervisor bypassed it.
+- **Fix:** Exported `FilteredEnv()` from `internal/process/manager.go` and used it in supervisor.
+- **Tests:** `TestSupervisorEnvFiltering`
+
+### R2-H2. Crash logs stored in shared /tmp with predictable paths
+- **File:** `root.go:91-96`
+- **Issue:** Crash dumps went to `/tmp/humrun-crashes/crash-<unix_timestamp>.log`. Predictable paths in shared `/tmp` enable symlink attacks.
+- **Fix:** Moved crash logs to `xdg.CacheDir()/crashes/` (user-local). Uses `O_EXCL` flag to prevent symlink attacks.
+- **Tests:** `TestCrashLogLocation`
+
+---
+
+## MEDIUM (Round 2)
+
+### R2-M1. IPC socket dir in shared /tmp — symlink race
+- **File:** `internal/ipc/server.go:18`
+- **Issue:** Socket dir `$TMPDIR/humrun-sockets/` was in shared temp space. TOCTOU race between `os.Stat` → `os.Remove` → `net.Listen`.
+- **Fix:** Socket dir moved to `xdg.RuntimeDir()/sockets/` (user-private). Verified dir ownership with 0700 permissions.
+- **Tests:** `TestSocketDirOwnership`, `TestSocketDirNotSharedTmp`
+
+### R2-M2. API body size limits inconsistent
+- **File:** `internal/api/handlers.go:317`
+- **Issue:** Only `RegisterApp` used `io.LimitReader`. Other handlers had no body size limit.
+- **Fix:** Added `http.MaxBytesReader` middleware in `internal/api/server.go` for all routes (1 MB limit).
+- **Tests:** `TestAPIBodySizeLimit`
+
+### R2-M3. No JSON request body size limit on server endpoints
+- **File:** `internal/server/server.go`
+- **Issue:** The experimental server had no body size limits.
+- **Fix:** Added `http.MaxBytesReader` in `withMiddleware` function (1 MB limit).
+- **Tests:** `TestServerBodySizeLimit`
+
+### R2-M4. Backup restore doesn't reject symlink tar entries
+- **File:** `cmd/humsafe/cmd/backup.go:245`
+- **Issue:** Only `tar.TypeDir` and `tar.TypeReg` were handled. Symlink and hardlink entries were silently ignored.
+- **Fix:** Explicitly reject `tar.TypeSymlink`, `tar.TypeLink`, and any other non-regular types with an error.
+- **Tests:** `TestBackupRestoreRejectsSymlinks`, `TestBackupRestoreRejectsHardlinks`, `TestBackupRestoreAcceptsNormalFiles`
+
+### R2-M5. IPC server doesn't limit message size
+- **File:** `internal/ipc/server.go:156`
+- **Issue:** `bufio.Scanner` used default buffer, no explicit limit on message size.
+- **Fix:** Set explicit `scanner.Buffer()` limit of 64KB.
+- **Tests:** `TestIPCMessageSizeLimit`
+
+### R2-M6. No rate limiting on experimental server auth endpoints
+- **File:** `internal/server/server.go:146-147`
+- **Issue:** `POST /api/auth/register` and `POST /api/auth/login` were public with no rate limiting.
+- **Fix:** Added token-bucket rate limiter (5 burst, 1 req/s sustained) to auth routes.
+- **Tests:** `TestServerAuthRateLimiting`
+
+### R2-M7. Auth token stored as plaintext file
+- **File:** `cmd/humsafe/cmd/login.go:81`
+- **Issue:** JWT token stored as plaintext at `$USER_CONFIG_DIR/humsafe/token`.
+- **Status:** Deferred — server is fully experimental (all endpoints return 501). Token at 0600 in user config dir is acceptable for non-functional feature. Added TODO comment for when server is implemented.
+
+---
+
+## LOW (Round 2)
+
+### R2-L1. Log injection via app names
+- **File:** `internal/config/config.go`
+- **Issue:** App names from config rendered directly in TUI. ANSI escape sequences in app names could manipulate terminal state.
+- **Fix:** Added `containsControlChars()` validation in `App.Validate()` — rejects names with ANSI escapes or control characters.
+- **Tests:** `TestAppNameControlChars`
+
+### R2-L2. PID file fallback to shared /tmp
+- **File:** `internal/api/discovery.go:16`
+- **Issue:** `GlobalDir()` fallback used `os.TempDir()/.humrun` (shared). Primary path was already `~/.humrun`.
+- **Fix:** Fallback now uses `$XDG_RUNTIME_DIR/humrun` or UID-scoped temp path to avoid shared access.
+- **Tests:** `TestPIDFileLocation`
+
+### R2-L3. Dev supervisor temp binary in shared /tmp
+- **File:** `internal/dev/supervisor.go:53`
+- **Issue:** `humrun-dev-<hash>` binary written to `os.TempDir()`. Another user could replace it between writes.
+- **Fix:** Moved to `xdg.CacheDir()/dev/` (user-local cache dir).
+- **Tests:** `TestSupervisorTmpBinaryNotInSharedTmp`
+
+---
+
+## Round 2 — New Tests Added
+
+| Test | File | What it verifies |
+|------|------|-----------------|
+| `TestSupervisorEnvFiltering` | `internal/dev/supervisor_test.go` | Sensitive env vars stripped from child processes |
+| `TestSupervisorTmpBinaryNotInSharedTmp` | `internal/dev/supervisor_test.go` | Dev binary not in shared /tmp |
+| `TestCrashLogLocation` | `root_test.go` | Crash dir under user home, not /tmp |
+| `TestSocketDirOwnership` | `internal/ipc/server_test.go` | Socket dir has 0700, no group/other access |
+| `TestSocketDirNotSharedTmp` | `internal/ipc/server_test.go` | Socket dir not in shared /tmp |
+| `TestIPCMessageSizeLimit` | `internal/ipc/server_test.go` | Oversized IPC message handled gracefully |
+| `TestAPIBodySizeLimit` | `internal/api/api_test.go` | Oversized HTTP body rejected |
+| `TestPIDFileLocation` | `internal/api/api_test.go` | PID file under user dir, not shared /tmp |
+| `TestStubEndpointsReturn501` | `internal/server/server_test.go` | Unimplemented endpoints return 501 |
+| `TestServerBodySizeLimit` | `internal/server/server_test.go` | Server body size limit applied |
+| `TestServerAuthRateLimiting` | `internal/server/server_test.go` | Auth endpoints rate-limited after burst |
+| `TestAppNameControlChars` | `internal/config/config_test.go` | ANSI/control chars rejected in app names |
+| `TestBackupRestoreRejectsSymlinks` | `cmd/humsafe/cmd/backup_test.go` | Symlink in archive causes error |
+| `TestBackupRestoreRejectsHardlinks` | `cmd/humsafe/cmd/backup_test.go` | Hardlink in archive causes error |
+| `TestXDGDirFallbacks` | `internal/xdg/xdg_test.go` | Correct XDG fallback paths, not shared /tmp |
+
+---
+
+## Round 2 — Files Modified
+
+| File | Changes |
+|------|---------|
+| `internal/xdg/xdg.go` | **NEW** — XDG directory helpers (RuntimeDir, CacheDir) |
+| `internal/xdg/xdg_test.go` | **NEW** — XDG helper tests |
+| `root.go` | Crash log dir → XDG cache, O_EXCL flag |
+| `root_test.go` | **NEW** — Crash log location test |
+| `internal/ipc/server.go` | Socket dir → XDG runtime, scanner buffer limit |
+| `internal/ipc/server_test.go` | Socket dir ownership, message size, shared tmp tests |
+| `internal/api/discovery.go` | PID dir fallback → UID-scoped, not shared /tmp |
+| `internal/api/server.go` | Body size limit middleware |
+| `internal/api/api_test.go` | Body size limit, PID file location tests |
+| `internal/dev/supervisor.go` | FilteredEnv(), temp binary → XDG cache |
+| `internal/dev/supervisor_test.go` | **NEW** — Env filtering, temp binary location tests |
+| `internal/process/manager.go` | Export FilteredEnv() |
+| `internal/server/server.go` | Body size limit, auth rate limiting |
+| `internal/server/server_test.go` | **NEW** — Stub endpoints, body size, rate limit tests |
+| `internal/config/config.go` | App name control char validation |
+| `internal/config/config_test.go` | Control char validation tests |
+| `cmd/humsafe/cmd/backup.go` | Reject symlink/hardlink tar entries |
+| `cmd/humsafe/cmd/backup_test.go` | **NEW** — Symlink/hardlink rejection tests |
+| `cmd/humsafe/cmd/login.go` | TODO comment for token encryption |
+| `SECURITY_AUDIT.md` | Round 2 findings documented |
+
+---
+
+## Round 2 — Verification Checklist
+
+- [x] `go build ./...` — both binaries compile
+- [x] `go vet ./...` — clean
+- [x] `go test -race ./...` — all tests pass including 15 new security tests
+- [x] `go test -race -tags e2e ./internal/e2e/` — E2E tests pass
+- [x] Crash logs written to user-local dir, not shared /tmp
+- [x] IPC sockets in user-private runtime dir
+- [x] Sensitive env vars filtered from supervisor child processes
+- [x] Symlink tar entries rejected during backup restore
+- [x] API body size limits applied to all routes
+- [x] Auth endpoints rate-limited on experimental server

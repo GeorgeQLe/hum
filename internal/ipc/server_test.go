@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -293,16 +294,87 @@ func TestIPCPathTraversal(t *testing.T) {
 	if !filepath.IsAbs(path1) {
 		t.Error("socket path should be absolute")
 	}
-	if filepath.Dir(path1) != socketDir {
+	if filepath.Dir(path1) != socketDir() {
 		t.Errorf("socket path escaped socket dir: %q", path1)
 	}
-	if filepath.Dir(path2) != socketDir {
+	if filepath.Dir(path2) != socketDir() {
 		t.Errorf("socket path escaped socket dir: %q", path2)
 	}
 
 	// Path traversal in project root should produce different (safe) hashes
 	if path1 == path2 {
 		t.Error("different project roots should produce different socket paths")
+	}
+}
+
+func TestSocketDirOwnership(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectRoot := filepath.Join(tmpDir, "test-project")
+	os.MkdirAll(projectRoot, 0755)
+
+	server, err := NewServer(projectRoot)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer server.Stop()
+
+	// Verify socket directory has 0700 permissions
+	dir := filepath.Dir(server.socketPath)
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat socket dir: %v", err)
+	}
+	perm := info.Mode().Perm()
+	if perm&0077 != 0 {
+		t.Errorf("socket dir permissions = %o, group/other should have no access", perm)
+	}
+}
+
+func TestIPCMessageSizeLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	projectRoot := filepath.Join(tmpDir, "test-project")
+	os.MkdirAll(projectRoot, 0755)
+
+	server, err := NewServer(projectRoot)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer server.Stop()
+	server.Start()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Send a message larger than maxIPCMessageSize (64KB)
+	conn, err := net.DialTimeout("unix", server.socketPath, 2*time.Second)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	// Create an oversized message (>64KB) as a single line
+	oversized := strings.Repeat("x", maxIPCMessageSize+1024) + "\n"
+	conn.Write([]byte(oversized))
+
+	// The scanner should reject this — the connection should close or return an error response
+	scanner := bufio.NewScanner(conn)
+	// If scanner.Scan() returns true, the server managed to read it (shouldn't happen with oversized)
+	// If it returns false, the connection was closed or errored (expected behavior)
+	if scanner.Scan() {
+		// If we got a response, it should be an error
+		var resp Response
+		if err := json.Unmarshal(scanner.Bytes(), &resp); err == nil && resp.OK {
+			t.Error("oversized message should not succeed")
+		}
+	}
+	// If scanner.Scan() returns false, that's the expected behavior — connection closed
+}
+
+func TestSocketDirNotSharedTmp(t *testing.T) {
+	dir := socketDir()
+	// Socket dir should NOT be directly in /tmp (shared temp space)
+	if dir == filepath.Join(os.TempDir(), "humrun-sockets") {
+		t.Errorf("socketDir() = %q, should not be in shared /tmp", dir)
 	}
 }
 

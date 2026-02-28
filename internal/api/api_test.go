@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -343,6 +345,61 @@ func TestRateLimiting(t *testing.T) {
 
 	if rateLimited == 0 {
 		t.Error("expected some requests to be rate-limited after 150 rapid requests")
+	}
+}
+
+func TestPIDFileLocation(t *testing.T) {
+	dir := GlobalDir()
+	// GlobalDir should NOT fall back to shared /tmp/.humrun
+	sharedTmp := filepath.Join(os.TempDir(), ".humrun")
+	if dir == sharedTmp {
+		t.Errorf("GlobalDir() = %q, should not be shared /tmp path", dir)
+	}
+
+	// Should typically be under user's home directory
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if !strings.HasPrefix(dir, home) {
+			t.Errorf("GlobalDir() = %q, should be under user home %q", dir, home)
+		}
+	}
+}
+
+func TestAPIBodySizeLimit(t *testing.T) {
+	deps := ServerDeps{
+		GetApps:       func() []AppInfo { return nil },
+		GetAppDetail:  func(name string) *AppDetail { return nil },
+		GetLogs:       func(name string, lines int) []LogEntry { return nil },
+		GetErrors:     func(name string) []ErrorEntry { return nil },
+		GetPorts:      func() []PortMapping { return nil },
+		GetStats:      func() []AppStats { return nil },
+		ApprovalQueue: nil,
+		ExecuteAction: func(action, appName string, payload []byte) (string, error) { return "", nil },
+	}
+
+	srv, err := NewServer(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+
+	baseURL := "http://127.0.0.1:" + strings.Split(srv.listener.Addr().String(), ":")[1]
+	token := srv.Token()
+
+	// Send a body larger than 1MB — should be rejected
+	largeBody := strings.Repeat("x", 2*1024*1024)
+	req, _ := http.NewRequest("POST", baseURL+"/api/apps", strings.NewReader(largeBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// http.MaxBytesReader returns 413 or the handler returns 400 when Read fails
+	if resp.StatusCode != http.StatusRequestEntityTooLarge && resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("oversized body: expected 413 or 400, got %d", resp.StatusCode)
 	}
 }
 

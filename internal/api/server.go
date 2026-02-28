@@ -79,9 +79,9 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	mux.HandleFunc("POST /api/apps/{name}/restart", handler.RestartApp)
 	mux.HandleFunc("POST /api/apps/scan", handler.ScanApps)
 
-	// Wrap with auth middleware and rate limiting (100 burst, 10 req/s sustained)
+	// Wrap with auth middleware, body size limit, and rate limiting (100 burst, 10 req/s sustained)
 	limiter := newRateLimiter(100, 10.0)
-	authed := rateLimitMiddleware(limiter, authMiddleware(token, mux))
+	authed := rateLimitMiddleware(limiter, bodySizeLimitMiddleware(1<<20, authMiddleware(token, mux)))
 
 	srv := &http.Server{
 		Handler:      authed,
@@ -135,6 +135,17 @@ func (s *Server) Stop() {
 	defer cancel()
 	s.httpServer.Shutdown(ctx) //nolint:errcheck // best-effort shutdown
 	RemoveDiscovery()
+}
+
+// bodySizeLimitMiddleware limits request body size for all routes to prevent
+// memory exhaustion from oversized JSON payloads.
+func bodySizeLimitMiddleware(maxBytes int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // authMiddleware checks for a valid Bearer token on all requests except /api/health.

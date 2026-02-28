@@ -260,6 +260,10 @@ password used during backup.`,
 						return fmt.Errorf("writing file: %w", err)
 					}
 					outFile.Close()
+				case tar.TypeSymlink, tar.TypeLink:
+					return fmt.Errorf("archive contains unsafe entry type (symlink/hardlink): %s", header.Name)
+				default:
+					return fmt.Errorf("archive contains unsupported entry type %d: %s", header.Typeflag, header.Name)
 				}
 			}
 

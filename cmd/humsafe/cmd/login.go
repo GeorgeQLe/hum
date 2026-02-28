@@ -68,7 +68,9 @@ func LoginCmd() *cobra.Command {
 				return fmt.Errorf("parsing server response: %w", err)
 			}
 
-			// Store token in config file instead of printing to stdout
+			// Store token in config file instead of printing to stdout.
+			// TODO(security): When server is implemented, encrypt token at rest
+			// using OS keychain (keychain.go pattern) instead of plaintext file.
 			configDir, err := os.UserConfigDir()
 			if err != nil {
 				return fmt.Errorf("finding config directory: %w", err)

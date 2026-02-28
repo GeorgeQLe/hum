@@ -14,6 +14,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/georgele/hum/internal/ipc"
+	"github.com/georgele/hum/internal/process"
+	"github.com/georgele/hum/internal/xdg"
 )
 
 const (
@@ -50,7 +52,13 @@ func New(projectDir string) (*Supervisor, error) {
 		return nil, fmt.Errorf("failed to resolve project dir: %w", err)
 	}
 	hash := sha256.Sum256([]byte(abs))
-	tmpBinary := filepath.Join(os.TempDir(), fmt.Sprintf("humrun-dev-%x", hash[:8]))
+	// Use user-local cache dir instead of shared /tmp to prevent another
+	// user from replacing the binary between writes.
+	devCacheDir := filepath.Join(xdg.CacheDir(), "dev")
+	if err := xdg.EnsureDir(devCacheDir); err != nil {
+		return nil, fmt.Errorf("creating dev cache dir: %w", err)
+	}
+	tmpBinary := filepath.Join(devCacheDir, fmt.Sprintf("humrun-dev-%x", hash[:8]))
 	return &Supervisor{
 		projectDir: abs,
 		tmpBinary:  tmpBinary,
@@ -194,7 +202,7 @@ func (s *Supervisor) build() error {
 
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", s.tmpBinary, ".")
 	cmd.Dir = s.projectDir
-	cmd.Env = os.Environ()
+	cmd.Env = process.FilteredEnv()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/georgele/hum/internal/config"
 	"github.com/georgele/hum/internal/ipc"
 	"github.com/georgele/hum/internal/tui"
+	"github.com/georgele/hum/internal/xdg"
 )
 
 func newRootCmd() *cobra.Command {
@@ -87,13 +88,18 @@ func runTUI(startAll, restore bool) error {
 			stack := debug.Stack()
 			fmt.Fprintf(os.Stderr, "humrun panic: %v\n%s\n", r, stack)
 
-			// Write crash log
-			crashDir := filepath.Join(os.TempDir(), "humrun-crashes")
-			if err := os.MkdirAll(crashDir, 0700); err == nil {
+			// Write crash log to user-local cache dir (not shared /tmp)
+			crashDir := filepath.Join(xdg.CacheDir(), "crashes")
+			if err := xdg.EnsureDir(crashDir); err == nil {
 				crashFile := filepath.Join(crashDir, fmt.Sprintf("crash-%d.log", time.Now().Unix()))
 				content := fmt.Sprintf("humrun panic: %v\n\n%s", r, stack)
-				os.WriteFile(crashFile, []byte(content), 0600) //nolint:errcheck // best-effort crash log
-				fmt.Fprintf(os.Stderr, "crash log written to %s\n", crashFile)
+				// Use O_CREATE|O_EXCL to prevent symlink attacks
+				f, ferr := os.OpenFile(crashFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+				if ferr == nil {
+					f.Write([]byte(content)) //nolint:errcheck // best-effort crash log
+					f.Close()
+					fmt.Fprintf(os.Stderr, "crash log written to %s\n", crashFile)
+				}
 			}
 
 			// Clean up IPC socket and API PID file

@@ -681,6 +681,12 @@ var sensitiveEnvPrefixes = []string{
 	"HUMRUN_API_TOKEN",
 }
 
+// FilteredEnv returns os.Environ() with sensitive variables stripped.
+// Exported so other packages (e.g., dev supervisor) can use the same filtering.
+func FilteredEnv() []string {
+	return filteredEnv()
+}
+
 // filteredEnv returns os.Environ() with sensitive variables stripped.
 func filteredEnv() []string {
 	var result []string

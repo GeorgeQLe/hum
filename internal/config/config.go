@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"unicode"
 )
 
 // HealthCheckConfig defines optional HTTP health checking for an app.
@@ -50,10 +51,24 @@ type App struct {
 	Watch          *WatchConfig          `json:"watch,omitempty"`
 }
 
+// containsControlChars checks if a string contains ASCII control characters
+// or ANSI escape sequences that could be used for terminal injection.
+func containsControlChars(s string) bool {
+	for _, r := range s {
+		if r == '\x1b' || (unicode.IsControl(r) && r != '\t') {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate checks that an App entry has all required fields.
 func (a *App) Validate() error {
 	if a.Name == "" {
 		return fmt.Errorf("missing or invalid \"name\"")
+	}
+	if containsControlChars(a.Name) {
+		return fmt.Errorf("\"name\" contains control characters or ANSI escapes")
 	}
 	if a.Dir == "" {
 		return fmt.Errorf("missing or invalid \"dir\"")

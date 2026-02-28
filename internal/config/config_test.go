@@ -65,6 +65,37 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestAppNameControlChars(t *testing.T) {
+	tests := []struct {
+		name    string
+		appName string
+		wantErr bool
+	}{
+		{"normal name", "my-app", false},
+		{"name with spaces", "my app", false},
+		{"ANSI escape", "my-app\x1b[31mred", true},
+		{"escape sequence", "\x1b[2Jclear-screen", true},
+		{"null byte", "my\x00app", true},
+		{"newline", "my\napp", true},
+		{"carriage return", "my\rapp", true},
+		{"bell", "my\x07app", true},
+		{"tab allowed", "my\tapp", false}, // tabs are common in configs
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := App{Name: tt.appName, Dir: ".", Command: "npm dev", Ports: []int{3000}}
+			err := app.Validate()
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for name %q, got nil", tt.appName)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error for name %q: %v", tt.appName, err)
+			}
+		})
+	}
+}
+
 func TestLoadSave(t *testing.T) {
 	tmpDir := t.TempDir()
 

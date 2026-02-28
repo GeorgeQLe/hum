@@ -13,11 +13,20 @@ import (
 	"time"
 
 	"github.com/georgele/hum/internal/panicutil"
+	"github.com/georgele/hum/internal/xdg"
 )
 
-var socketDir = filepath.Join(os.TempDir(), "humrun-sockets")
+// socketDir returns the directory for IPC sockets, using a user-private
+// runtime directory instead of shared /tmp to prevent symlink attacks.
+func socketDir() string {
+	return filepath.Join(xdg.RuntimeDir(), "sockets")
+}
 
-const ipcRequestBufferSize = 16
+const (
+	ipcRequestBufferSize = 16
+	// maxIPCMessageSize limits IPC message size to prevent resource exhaustion.
+	maxIPCMessageSize = 64 * 1024 // 64 KB
+)
 
 // Request represents an IPC request from a client.
 type Request struct {
@@ -59,7 +68,7 @@ type Server struct {
 func SocketPath(projectRoot string) string {
 	hash := sha256.Sum256([]byte(projectRoot))
 	socketName := fmt.Sprintf("humrun-%x.sock", hash[:8])
-	return filepath.Join(socketDir, socketName)
+	return filepath.Join(socketDir(), socketName)
 }
 
 // NewServer creates a new IPC server for the given project root.
@@ -67,7 +76,8 @@ func NewServer(projectRoot string) (*Server, error) {
 	socketPath := SocketPath(projectRoot)
 
 	// Ensure socket directory exists
-	if err := os.MkdirAll(socketDir, 0700); err != nil {
+	dir := socketDir()
+	if err := xdg.EnsureDir(dir); err != nil {
 		return nil, err
 	}
 
@@ -147,6 +157,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, maxIPCMessageSize), maxIPCMessageSize)
 	if !scanner.Scan() {
 		return
 	}

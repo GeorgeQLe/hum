@@ -10,10 +10,16 @@ import (
 )
 
 // GlobalDir returns the path to ~/.humrun/.
+// Falls back to a user-scoped XDG runtime dir if home dir is unavailable,
+// avoiding shared /tmp to prevent symlink attacks.
 func GlobalDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), ".humrun")
+		// Avoid shared /tmp — use XDG runtime dir or a UID-scoped fallback
+		if xdgRuntime := os.Getenv("XDG_RUNTIME_DIR"); xdgRuntime != "" {
+			return filepath.Join(xdgRuntime, "humrun")
+		}
+		return filepath.Join(os.TempDir(), fmt.Sprintf("humrun-%d", os.Getuid()))
 	}
 	return filepath.Join(home, ".humrun")
 }
