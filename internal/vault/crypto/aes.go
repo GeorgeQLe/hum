@@ -33,6 +33,14 @@ func Encrypt(key, plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
+// ZeroBytes overwrites a byte slice with zeros to clear sensitive material
+// from memory.
+func ZeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // Decrypt decrypts data produced by Encrypt (nonce + ciphertext).
 func Decrypt(key, data []byte) ([]byte, error) {
 	if len(key) != 32 {

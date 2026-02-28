@@ -27,11 +27,12 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 }
 
 const (
-	VaultDir    = ".humsafe"
-	VaultFile   = "vault.enc"
-	ConfigFile  = "config.json"
-	AuditFile   = "audit.log"
-	DefaultEnv  = "development"
+	VaultDir            = ".humsafe"
+	VaultFile           = "vault.enc"
+	ConfigFile          = "config.json"
+	AuditFile           = "audit.log"
+	DefaultEnv          = "development"
+	MaxRotationHistory  = 10
 )
 
 // RotationEntry records a previous value for a rotated secret.
@@ -365,6 +366,9 @@ func (v *Vault) Rotate(env, key, newValue string) error {
 		Value:     entry.Value,
 		RotatedAt: now,
 	})
+	if len(entry.History) > MaxRotationHistory {
+		entry.History = entry.History[len(entry.History)-MaxRotationHistory:]
+	}
 	entry.Value = newValue
 	entry.UpdatedAt = now
 

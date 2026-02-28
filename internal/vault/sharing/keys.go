@@ -1,6 +1,7 @@
 package sharing
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -71,9 +72,38 @@ func PrivateKeyFromBase64(s string) ([KeySize]byte, error) {
 	return key, nil
 }
 
+// isLowOrderPoint returns true if the given point is a known low-order point
+// on Curve25519. These points produce an all-zero shared secret and must be
+// rejected to prevent key compromise.
+func isLowOrderPoint(point [KeySize]byte) bool {
+	// Known low-order points on Curve25519 that produce all-zero output.
+	knownLowOrder := [][KeySize]byte{
+		// 0 (neutral element)
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		// 1
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		// p-1 (2^255 - 20)
+		{0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f},
+		// p (2^255 - 19)
+		{0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f},
+		// p+1
+		{0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f},
+	}
+	for _, lop := range knownLowOrder {
+		if bytes.Equal(point[:], lop[:]) {
+			return true
+		}
+	}
+	return false
+}
+
 // ComputeSharedSecret computes an X25519 shared secret from a private key
-// and a peer's public key.
+// and a peer's public key. Returns an error if the peer's public key is a
+// known low-order point.
 func ComputeSharedSecret(privateKey, peerPublicKey [KeySize]byte) ([]byte, error) {
+	if isLowOrderPoint(peerPublicKey) {
+		return nil, fmt.Errorf("rejecting low-order public key")
+	}
 	shared, err := curve25519.X25519(privateKey[:], peerPublicKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("computing shared secret: %w", err)

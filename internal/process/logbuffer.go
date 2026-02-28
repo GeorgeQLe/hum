@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-const MaxLogLines = 5000
+const (
+	MaxLogLines   = 5000
+	MaxLineLength = 8192
+)
 
 // LogLine represents a single line in the log buffer.
 type LogLine struct {
@@ -48,6 +51,9 @@ func (b *LogBuffer) Append(text string, isStderr bool) []int {
 		clean := sanitizeLine(line)
 		if len(clean) == 0 {
 			continue
+		}
+		if len(clean) > MaxLineLength {
+			clean = clean[:MaxLineLength] + "... [truncated]"
 		}
 		idx := len(b.Lines)
 		b.Lines = append(b.Lines, LogLine{

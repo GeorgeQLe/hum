@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 )
@@ -101,7 +100,6 @@ func generateRequestID() string {
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status": "ok",
-		"pid":    os.Getpid(),
 		"time":   time.Now().UTC(),
 	})
 }
